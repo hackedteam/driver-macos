@@ -184,9 +184,9 @@ int  hook_getdirentries             (struct proc *,
 int  hook_getdirentries64           (struct proc *,
                                      struct mk_getdirentries64_args *,
                                      int *);
-int  hook_getattrlist               (struct proc *,
-                                     struct mk_getattrlist_args *,
-                                     int *);
+int hook_getdirentriesattr          (struct proc *p,
+                                     struct mk_getdirentriesattr_args *uap,
+                                     int *retval);
 /*
 int hook_shutdown                   (struct proc *,
                                      struct mk_shutdown_args *,
