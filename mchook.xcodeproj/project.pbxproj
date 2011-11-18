@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1A93AE47147663E800908B79 /* mchook.h in Headers */ = {isa = PBXBuildFile; fileRef = 1AA104E50F6FB1F600B48136 /* mchook.h */; };
+		1A93AE48147663E800908B79 /* proc_internal.h in Headers */ = {isa = PBXBuildFile; fileRef = 1AA104E70F6FB1FF00B48136 /* proc_internal.h */; };
+		1A93AE49147663E800908B79 /* structures.h in Headers */ = {isa = PBXBuildFile; fileRef = 1AA104E90F6FB20800B48136 /* structures.h */; };
+		1A93AE4A147663E800908B79 /* task_internal.h in Headers */ = {isa = PBXBuildFile; fileRef = 1ADE17BC124BA15800009522 /* task_internal.h */; };
+		1A93AE4C147663E800908B79 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 089C167DFE841241C02AAC07 /* InfoPlist.strings */; };
+		1A93AE4E147663E800908B79 /* mchook.c in Sources */ = {isa = PBXBuildFile; fileRef = 1A224C3CFF42312311CA2CB7 /* mchook.c */; settings = {ATTRIBUTES = (); }; };
 		1AA104E60F6FB1F600B48136 /* mchook.h in Headers */ = {isa = PBXBuildFile; fileRef = 1AA104E50F6FB1F600B48136 /* mchook.h */; };
 		1AA104E80F6FB1FF00B48136 /* proc_internal.h in Headers */ = {isa = PBXBuildFile; fileRef = 1AA104E70F6FB1FF00B48136 /* proc_internal.h */; };
 		1AA104EA0F6FB20800B48136 /* structures.h in Headers */ = {isa = PBXBuildFile; fileRef = 1AA104E90F6FB20800B48136 /* structures.h */; };
@@ -18,15 +24,24 @@
 /* Begin PBXFileReference section */
 		089C167EFE841241C02AAC07 /* English */ = {isa = PBXFileReference; fileEncoding = 10; lastKnownFileType = text.plist.strings; name = English; path = English.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		1A224C3CFF42312311CA2CB7 /* mchook.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = mchook.c; sourceTree = "<group>"; };
+		1A93AE54147663E800908B79 /* mchook-64.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mchook-64.kext"; sourceTree = BUILT_PRODUCTS_DIR; };
+		1A93AE55147663E800908B79 /* mchook-64-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "mchook-64-Info.plist"; path = "/Users/revenge/devel/git/driver-macos/mchook-64-Info.plist"; sourceTree = "<absolute>"; };
 		1AA104E50F6FB1F600B48136 /* mchook.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = mchook.h; sourceTree = "<group>"; };
 		1AA104E70F6FB1FF00B48136 /* proc_internal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = proc_internal.h; sourceTree = "<group>"; };
 		1AA104E90F6FB20800B48136 /* structures.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = structures.h; sourceTree = "<group>"; };
 		1ADE17BC124BA15800009522 /* task_internal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = task_internal.h; sourceTree = "<group>"; };
 		32A4FEC30562C75700D090E7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		32A4FEC40562C75800D090E7 /* mchook.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = mchook.kext; sourceTree = BUILT_PRODUCTS_DIR; };
+		32A4FEC40562C75800D090E7 /* mchook-32.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mchook-32.kext"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		1A93AE4F147663E800908B79 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		32A4FEBF0562C75700D090E7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -51,6 +66,7 @@
 			isa = PBXGroup;
 			children = (
 				32A4FEC30562C75700D090E7 /* Info.plist */,
+				1A93AE55147663E800908B79 /* mchook-64-Info.plist */,
 				089C167DFE841241C02AAC07 /* InfoPlist.strings */,
 			);
 			name = Resources;
@@ -59,7 +75,8 @@
 		19C28FB6FE9D52B211CA2CBB /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				32A4FEC40562C75800D090E7 /* mchook.kext */,
+				32A4FEC40562C75800D090E7 /* mchook-32.kext */,
+				1A93AE54147663E800908B79 /* mchook-64.kext */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -79,6 +96,17 @@
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
+		1A93AE46147663E800908B79 /* Headers */ = {
+			isa = PBXHeadersBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A93AE47147663E800908B79 /* mchook.h in Headers */,
+				1A93AE48147663E800908B79 /* proc_internal.h in Headers */,
+				1A93AE49147663E800908B79 /* structures.h in Headers */,
+				1A93AE4A147663E800908B79 /* task_internal.h in Headers */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		32A4FEBA0562C75700D090E7 /* Headers */ = {
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
@@ -93,9 +121,29 @@
 /* End PBXHeadersBuildPhase section */
 
 /* Begin PBXNativeTarget section */
-		32A4FEB80562C75700D090E7 /* mchook */ = {
+		1A93AE45147663E800908B79 /* mchook-64 */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 1DEB91C308733DAC0010E9CD /* Build configuration list for PBXNativeTarget "mchook" */;
+			buildConfigurationList = 1A93AE51147663E800908B79 /* Build configuration list for PBXNativeTarget "mchook-64" */;
+			buildPhases = (
+				1A93AE46147663E800908B79 /* Headers */,
+				1A93AE4B147663E800908B79 /* Resources */,
+				1A93AE4D147663E800908B79 /* Sources */,
+				1A93AE4F147663E800908B79 /* Frameworks */,
+				1A93AE50147663E800908B79 /* Rez */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "mchook-64";
+			productInstallPath = "$(SYSTEM_LIBRARY_DIR)/Extensions";
+			productName = mchook;
+			productReference = 1A93AE54147663E800908B79 /* mchook-64.kext */;
+			productType = "com.apple.product-type.kernel-extension";
+		};
+		32A4FEB80562C75700D090E7 /* mchook-32 */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1DEB91C308733DAC0010E9CD /* Build configuration list for PBXNativeTarget "mchook-32" */;
 			buildPhases = (
 				32A4FEBA0562C75700D090E7 /* Headers */,
 				32A4FEBB0562C75700D090E7 /* Resources */,
@@ -107,10 +155,10 @@
 			);
 			dependencies = (
 			);
-			name = mchook;
+			name = "mchook-32";
 			productInstallPath = "$(SYSTEM_LIBRARY_DIR)/Extensions";
 			productName = mchook;
-			productReference = 32A4FEC40562C75800D090E7 /* mchook.kext */;
+			productReference = 32A4FEC40562C75800D090E7 /* mchook-32.kext */;
 			productType = "com.apple.product-type.kernel-extension";
 		};
 /* End PBXNativeTarget section */
@@ -135,12 +183,21 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				32A4FEB80562C75700D090E7 /* mchook */,
+				32A4FEB80562C75700D090E7 /* mchook-32 */,
+				1A93AE45147663E800908B79 /* mchook-64 */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		1A93AE4B147663E800908B79 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A93AE4C147663E800908B79 /* InfoPlist.strings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		32A4FEBB0562C75700D090E7 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -152,6 +209,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXRezBuildPhase section */
+		1A93AE50147663E800908B79 /* Rez */ = {
+			isa = PBXRezBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		32A4FEC00562C75700D090E7 /* Rez */ = {
 			isa = PBXRezBuildPhase;
 			buildActionMask = 2147483647;
@@ -162,6 +226,14 @@
 /* End PBXRezBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		1A93AE4D147663E800908B79 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A93AE4E147663E800908B79 /* mchook.c in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		32A4FEBD0562C75700D090E7 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -184,6 +256,58 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		1A93AE52147663E800908B79 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = "$(ARCHS_STANDARD_32_64_BIT)";
+				COPY_PHASE_STRIP = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(DEVELOPER_DIR)/SDKs/MacOSX10.6.sdk/System/Library/Frameworks\"",
+				);
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_MODEL_TUNING = G5;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
+				INFOPLIST_FILE = "mchook-64-Info.plist";
+				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
+				MODULE_NAME = com.yourcompany.kext.mchook;
+				MODULE_START = mchook_start;
+				MODULE_STOP = mchook_stop;
+				MODULE_VERSION = 1.0.0d1;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "mchook-64";
+				SDKROOT = macosx10.7;
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Debug;
+		};
+		1A93AE53147663E800908B79 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = "$(ARCHS_STANDARD_32_64_BIT)";
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"$(DEVELOPER_DIR)/SDKs/MacOSX10.6.sdk/System/Library/Frameworks\"",
+				);
+				GCC_MODEL_TUNING = G5;
+				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
+				INFOPLIST_FILE = "mchook-64-Info.plist";
+				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
+				MODULE_NAME = com.yourcompany.kext.mchook;
+				MODULE_START = mchook_start;
+				MODULE_STOP = mchook_stop;
+				MODULE_VERSION = 1.0.0d1;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "mchook-64";
+				SDKROOT = macosx10.7;
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Release;
+		};
 		1DEB91C408733DAC0010E9CD /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -205,8 +329,8 @@
 				MODULE_STOP = mchook_stop;
 				MODULE_VERSION = 1.0.0d1;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_NAME = mchook;
-				SDKROOT = macosx10.7;
+				PRODUCT_NAME = "mchook-32";
+				SDKROOT = macosx10.6;
 				WRAPPER_EXTENSION = kext;
 			};
 			name = Debug;
@@ -230,8 +354,8 @@
 				MODULE_STOP = mchook_stop;
 				MODULE_VERSION = 1.0.0d1;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_NAME = mchook;
-				SDKROOT = macosx10.7;
+				PRODUCT_NAME = "mchook-32";
+				SDKROOT = macosx10.6;
 				WRAPPER_EXTENSION = kext;
 			};
 			name = Release;
@@ -268,7 +392,16 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		1DEB91C308733DAC0010E9CD /* Build configuration list for PBXNativeTarget "mchook" */ = {
+		1A93AE51147663E800908B79 /* Build configuration list for PBXNativeTarget "mchook-64" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A93AE52147663E800908B79 /* Debug */,
+				1A93AE53147663E800908B79 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1DEB91C308733DAC0010E9CD /* Build configuration list for PBXNativeTarget "mchook-32" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				1DEB91C408733DAC0010E9CD /* Debug */,
