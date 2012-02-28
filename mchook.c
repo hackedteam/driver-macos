@@ -48,7 +48,7 @@
 #define OSAX          "appleOsax"
 #define KERNEL_BASE   0xffffff8000200000 // SL 10.6.4
 
-#define DEBUG
+//#define DEBUG
 
 #pragma mark -
 #pragma mark Global variables
