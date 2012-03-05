@@ -1,6 +1,7 @@
 #!/bin/bash
 
-chmod -R 755 build/Release*
-chown -R revenge:staff build/Release*
+KEXT=/tmp/mchook-64.kext
+chmod -R 755 $KEXT/*
+chown -R test1:staff $KEXT
 
-kextunload build/Release/mchook.kext
+kextunload $KEXT
